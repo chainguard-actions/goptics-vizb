@@ -1,0 +1,104 @@
+version: "3"
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  init:
+    desc: Install all dependencies
+    cmds:
+      - go mod tidy
+      - go mod download
+      - cd pkg/template/ui; pnpm install; cd -
+      - task: act:install
+
+  dev:ui:
+    desc: Run development UI server
+    cmds:
+      - cd pkg/template/ui; pnpm dev --open
+
+  build:ui:
+    desc: Build Vue UI template
+    cmds:
+      - cd pkg/template/ui; SINGLEFILE=True pnpm build; cd -
+
+  build:cli:
+    desc: Build the binary (production-ready, stripped)
+    cmds:
+      - go build -ldflags="-s -w" -o ./bin/vizb
+
+  build:
+    desc: Build the UI & binary
+    cmds:
+      - task: build:ui
+      - task: build:cli
+
+  test:
+    desc: Run all tests (no cache)
+    cmds:
+      - go test -count=1 -v ./...
+
+  lint:
+    desc: Run linter
+    cmds:
+      - golangci-lint run
+
+  format:
+    desc: Format codes
+    cmds:
+      - gofmt -w .
+      - cd pkg/template/ui; pnpm format; cd -
+
+  release:check:
+    desc: Check Goreleaser configuration
+    cmds:
+      - goreleaser check
+
+  release:snapshot:
+    desc: Create a snapshot release
+    cmds:
+      - goreleaser release --snapshot --clean
+
+  release:
+    desc: Create and push a new tag to trigger release
+    prompt: This will create and push a new release tag. Continue?
+    vars:
+      VERSION: "{{.CLI_ARGS}}"
+    cmds:
+      - task: release:check
+      - task: release:snapshot
+      - echo "Creating tag {{.VERSION}}..."
+      - git tag -s {{.VERSION}} -m "Release {{.VERSION}}"
+      - git push origin {{.VERSION}}
+      - echo "Tag {{.VERSION}} pushed. GitHub Actions will create the release."
+
+  # ── Act: Local GitHub Actions Testing ──────────────────────
+
+  act:install:
+    desc: Install act for local GitHub Actions testing
+    cmds:
+      - (which act && echo "act already installed") || (echo "Installing act..." && go install github.com/nektos/act@latest)
+
+  act:check:
+    desc: Verify act is installed
+    cmds:
+      - which act || (echo "act not found. Run 'task act:install' first" && exit 1)
+
+  act:test:stateless:
+    desc: Test action in stateless mode (bench file → HTML)
+    cmds:
+      - task: act:check
+      - act --bind workflow_dispatch -W .github/workflows/test-action.yml --job stateless --matrix os:ubuntu-latest
+
+  act:test:stateful:
+    desc: Test action in stateful mode (merge + HTML + JSON)
+    cmds:
+      - task: act:check
+      - act --bind workflow_dispatch -W .github/workflows/test-action.yml --job stateful --matrix os:ubuntu-latest
+
+  act:clean:
+    desc: Clean up act test artifacts
+    cmds:
+      - rm -rf bench*.json index.html results/ bench-input.txt
