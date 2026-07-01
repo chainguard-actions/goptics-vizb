@@ -1,0 +1,55 @@
+name: Test cmd input (echo CSV via stdout)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install vizb binary
+        run: |
+          mkdir -p /tmp/vizb-bin
+          TAG="v0.14.0"
+          VERSION="0.14.0"
+          URL="https://github.com/goptics/vizb/releases/download/${TAG}/vizb@${VERSION}-linux-amd64.tar.gz"
+          curl -sfL "$URL" -o /tmp/vizb-archive.tar.gz
+          tar xzf /tmp/vizb-archive.tar.gz -C /tmp/vizb-bin
+          chmod +x /tmp/vizb-bin/vizb
+          echo "vizb installed: $(/tmp/vizb-bin/vizb --version 2>&1 || true)"
+
+      - id: action
+        uses: .
+        with:
+          cmd: "printf 'name,score\\nAlice,95\\nBob,87\\nCarol,92\\n'"
+          name: "Score Comparison"
+          parser: csv
+          output-json: /tmp/cmd-output.json
+          vizb-binary: /tmp/vizb-bin/vizb
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/cmd-output.json" ]; then
+            echo "FAIL: expected JSON output file not found at /tmp/cmd-output.json"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert JSON output is valid JSON
+        run: |
+          if ! python3 -c "import json, sys; json.load(open('/tmp/cmd-output.json'))" 2>&1; then
+            echo "FAIL: output file is not valid JSON"
+            exit 1
+          fi
+          echo "PASS: output file is valid JSON"
+
+      - name: Assert output-file-json output value
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/cmd-output.json" ]; then
+            echo "FAIL: expected '/tmp/cmd-output.json', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
