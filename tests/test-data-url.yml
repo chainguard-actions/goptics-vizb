@@ -1,0 +1,59 @@
+name: Test data-url mode (remote data, HTML only)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install vizb binary
+        id: install-vizb
+        shell: bash
+        run: |
+          OS="linux"
+          ARCH="amd64"
+          TAG="v0.14.1"
+          VERSION="0.14.1"
+          URL="https://github.com/goptics/vizb/releases/download/${TAG}/vizb@${VERSION}-${OS}-${ARCH}.tar.gz"
+          mkdir -p /tmp/vizb-install
+          curl -sfL "$URL" -o /tmp/vizb-install/vizb-archive.tar.gz
+          tar xzf /tmp/vizb-install/vizb-archive.tar.gz -C /tmp/vizb-install
+          chmod +x /tmp/vizb-install/vizb
+          echo "binary=/tmp/vizb-install/vizb" >> "$GITHUB_OUTPUT"
+
+      - id: action
+        uses: .
+        with:
+          data-url: "https://example.com/data.json"
+          name: "Remote Data Test"
+          output-html: /tmp/vizb-dataurl-test.html
+          vizb-binary: ${{ steps.install-vizb.outputs.binary }}
+
+      - name: Assert HTML output file exists
+        run: |
+          if [ ! -f "/tmp/vizb-dataurl-test.html" ]; then
+            echo "FAIL: expected HTML output file not found at /tmp/vizb-dataurl-test.html"
+            exit 1
+          fi
+          echo "PASS: HTML output file exists"
+
+      - name: Assert HTML file contains expected content
+        run: |
+          if ! grep -qi "<html" /tmp/vizb-dataurl-test.html; then
+            echo "FAIL: HTML file does not appear to contain HTML content"
+            head -5 /tmp/vizb-dataurl-test.html
+            exit 1
+          fi
+          echo "PASS: HTML file contains HTML content"
+
+      - name: Assert output-file-html action output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/vizb-dataurl-test.html" ]; then
+            echo "FAIL: expected output-file-html to be '/tmp/vizb-dataurl-test.html', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

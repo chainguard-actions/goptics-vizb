@@ -1,0 +1,70 @@
+name: deploy-javascript-examples
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  convert:
+    name: Convert Javascript Benchmarks
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - id: 00-tinybench
+            file: tinybench
+            name: "Bubble Vs Insertion Sort (tinybench)"
+            description: "Tinybench output — algorithm on X, input size on Y"
+            group-pattern: x/y
+          - id: 01-vitest
+            file: vitest
+            name: "Bubble Vs Insertion Sort (vitest)"
+            description: "Vitest bench output — benchmark name and case from regex groups"
+            group-regex: "n=(?<y>.*)/(?<x>.*)"
+
+
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: ${{ matrix.name }}
+        uses: ./
+        with:
+          file: examples/javascript/${{ matrix.file }}.txt
+          id: ${{ matrix.id }}
+          name: ${{ matrix.name }}
+          description: ${{ matrix.description }}
+          group-pattern: ${{ matrix.group-pattern }}
+          group-regex: ${{ matrix.group-regex }}
+          chart: |
+            bar:scale=log,sort=asc
+            line:scale=log,sort=asc
+            pie:sort=asc
+          output-json: ${{ matrix.id }}.json
+          vizb-binary: ${{ env.ACT == 'true' && './bin/vizb' || '' }}
+
+      - name: Stage json for local merge
+        if: env.ACT == 'true'
+        env:
+          MATRIX_ID: ${{ matrix.id }}
+        run: mkdir -p .act/jsons && cp "${MATRIX_ID}.json" .act/jsons/
+
+      - name: Uploading json artifacts
+        if: env.ACT != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: json-${{ matrix.id }}
+          path: ${{ matrix.id }}.json
+
+  merge-deploy:
+    name: Merge and Deploy Javascript Benchmarks
+    needs: convert
+    permissions:
+      contents: write
+    uses: ./.github/workflows/merge-deploy-examples.yml
+    with:
+      language: javascript

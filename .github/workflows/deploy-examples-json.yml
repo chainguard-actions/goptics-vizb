@@ -1,0 +1,79 @@
+name: deploy-json-examples
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  convert:
+    name: Convert JSON Data
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - id: 00-torvalds
+            user: torvalds
+
+          - id: 01-sindresorhus
+            user: sindresorhus
+
+          - id: 02-yyx990803
+            user: yyx990803
+
+          - id: 03-gaearon
+            user: gaearon
+
+          - id: 04-isaacs
+            user: isaacs
+
+          - id: 05-antirez
+            user: antirez
+
+          - id: 06-gvanrossum
+            user: gvanrossum
+
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: ${{ matrix.user }}
+        uses: ./
+        with:
+          cmd: curl -sfL "https://github-contributions-api.jogruber.de/v4/${{ matrix.user }}"
+          id: ${{ matrix.id }}
+          name: ${{ matrix.user }}
+          description: "3D GitHub contribution skyline from jogruber API of the top OSS contributors"
+          group: date
+          group-pattern: "[z{Year}-y{Month}-x{Date}]"
+          json-path: ".contributions"
+          select: "count{Contributions}"
+          stat: all
+          charts: bar
+          output-json: ${{ matrix.id }}.json
+          vizb-binary: ${{ env.ACT == 'true' && './bin/vizb' || '' }}
+
+      - name: Stage json for local merge
+        if: env.ACT == 'true'
+        env:
+          MATRIX_ID: ${{ matrix.id }}
+        run: mkdir -p .act/jsons && cp "${MATRIX_ID}.json" .act/jsons/
+
+      - name: Uploading json artifacts
+        if: env.ACT != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: json-${{ matrix.id }}
+          path: ${{ matrix.id }}.json
+
+  merge-deploy:
+    name: Merge and Deploy JSON Data
+    needs: convert
+    permissions:
+      contents: write
+    uses: ./.github/workflows/merge-deploy-examples.yml
+    with:
+      language: json

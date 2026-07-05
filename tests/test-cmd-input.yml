@@ -1,0 +1,64 @@
+name: Test cmd input to JSON output
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install vizb binary
+        id: install-vizb
+        shell: bash
+        run: |
+          OS="linux"
+          ARCH="amd64"
+          TAG="v0.14.1"
+          VERSION="0.14.1"
+          URL="https://github.com/goptics/vizb/releases/download/${TAG}/vizb@${VERSION}-${OS}-${ARCH}.tar.gz"
+          mkdir -p /tmp/vizb-install
+          curl -sfL "$URL" -o /tmp/vizb-install/vizb-archive.tar.gz
+          tar xzf /tmp/vizb-install/vizb-archive.tar.gz -C /tmp/vizb-install
+          chmod +x /tmp/vizb-install/vizb
+          echo "binary=/tmp/vizb-install/vizb" >> "$GITHUB_OUTPUT"
+
+      - name: Create CSV input file for cmd
+        shell: bash
+        run: |
+          printf 'name,score\nAlice,95\nBob,87\nCarol,92\n' > /tmp/vizb-cmd-input.csv
+
+      - id: action
+        uses: .
+        with:
+          cmd: "cat /tmp/vizb-cmd-input.csv"
+          name: "Score Comparison"
+          parser: csv
+          output-json: /tmp/vizb-cmd-output.json
+          vizb-binary: ${{ steps.install-vizb.outputs.binary }}
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/vizb-cmd-output.json" ]; then
+            echo "FAIL: expected JSON output file not found at /tmp/vizb-cmd-output.json"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert JSON output is valid JSON
+        run: |
+          if ! python3 -c "import json, sys; json.load(open('/tmp/vizb-cmd-output.json'))" 2>&1; then
+            echo "FAIL: output file is not valid JSON"
+            exit 1
+          fi
+          echo "PASS: output file is valid JSON"
+
+      - name: Assert output-file-json action output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/vizb-cmd-output.json" ]; then
+            echo "FAIL: expected output-file-json to be '/tmp/vizb-cmd-output.json', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

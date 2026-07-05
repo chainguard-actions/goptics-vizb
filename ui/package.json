@@ -1,0 +1,48 @@
+{
+  "name": "ui",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "vue-tsc -b --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "verify:gen": "node embed-build/verify-gen-sync.ts"
+  },
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "echarts": "^5.5.0",
+    "echarts-gl": "^2.1.0",
+    "lucide-vue-next": "^0.461.0",
+    "radix-vue": "^1.9.0",
+    "tailwind-merge": "^2.5.5",
+    "vue": "^3.5.22",
+    "vue-echarts": "^7.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "@vitejs/plugin-vue": "^6.0.7",
+    "@vue/tsconfig": "^0.8.1",
+    "autoprefixer": "^10.4.20",
+    "baseline-browser-mapping": "^2.9.6",
+    "linkedom": "^0.18.12",
+    "postcss": "^8.4.49",
+    "prettier": "^3.7.3",
+    "prettier-plugin-tailwindcss": "^0.7.1",
+    "tailwindcss": "^3.4.16",
+    "terser": "^5.44.0",
+    "typescript": "~5.9.3",
+    "vite": "^8.1.0",
+    "vite-plugin-html": "^3.2.2",
+    "vitest": "^4.1.9",
+    "vue-tsc": "^3.1.0"
+  }
+}

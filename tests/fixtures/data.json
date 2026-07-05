@@ -1,0 +1,6 @@
+[
+  {"product": "Widget A", "sales": 1200, "cost": 800},
+  {"product": "Widget B", "sales": 950, "cost": 600},
+  {"product": "Widget C", "sales": 1500, "cost": 1000},
+  {"product": "Widget D", "sales": 700, "cost": 400}
+]
