@@ -1,0 +1,65 @@
+name: Test HTML output generation
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Download vizb binary
+        run: |
+          mkdir -p /tmp/vizb-install
+          TAG="v0.15.0"
+          VERSION="0.15.0"
+          URL="https://github.com/goptics/vizb/releases/download/${TAG}/vizb@${VERSION}-linux-amd64.tar.gz"
+          curl -sfL "$URL" -o /tmp/vizb-archive.tar.gz
+          tar xzf /tmp/vizb-archive.tar.gz -C /tmp/vizb-install
+          chmod +x /tmp/vizb-install/vizb
+
+      - id: action
+        uses: .
+        with:
+          file: "${{ github.workspace }}/tests/fixtures/region-metrics.csv"
+          name: "Region Metrics HTML"
+          output-json: "/tmp/html-test.json"
+          output-html: "/tmp/html-test.html"
+          parser: csv
+          vizb-binary: /tmp/vizb-install/vizb
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/html-test.json" ]; then
+            echo "FAIL: expected JSON output file /tmp/html-test.json not found"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert HTML output file exists
+        run: |
+          if [ ! -f "/tmp/html-test.html" ]; then
+            echo "FAIL: expected HTML output file /tmp/html-test.html not found"
+            exit 1
+          fi
+          echo "PASS: HTML output file exists"
+
+      - name: Assert HTML file contains expected content
+        run: |
+          if grep -qi "<html" /tmp/html-test.html || grep -qi "<!DOCTYPE" /tmp/html-test.html; then
+            echo "PASS: HTML file contains HTML content"
+          else
+            echo "FAIL: HTML file does not appear to contain HTML content"
+            head -5 /tmp/html-test.html || true
+            exit 1
+          fi
+
+      - name: Assert output-file-html output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/html-test.html" ]; then
+            echo "FAIL: expected output-file-html to be '/tmp/html-test.html', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

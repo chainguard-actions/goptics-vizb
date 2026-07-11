@@ -1,0 +1,44 @@
+name: Test deprecated bench-file input (backward compatibility)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Download vizb binary
+        run: |
+          mkdir -p /tmp/vizb-install
+          TAG="v0.15.0"
+          VERSION="0.15.0"
+          URL="https://github.com/goptics/vizb/releases/download/${TAG}/vizb@${VERSION}-linux-amd64.tar.gz"
+          curl -sfL "$URL" -o /tmp/vizb-archive.tar.gz
+          tar xzf /tmp/vizb-archive.tar.gz -C /tmp/vizb-install
+          chmod +x /tmp/vizb-install/vizb
+
+      - id: action
+        uses: .
+        with:
+          bench-file: "${{ github.workspace }}/tests/fixtures/region-metrics.csv"
+          name: "Deprecated Bench File Test"
+          output-json: "/tmp/bench-file-output.json"
+          parser: csv
+          vizb-binary: /tmp/vizb-install/vizb
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/bench-file-output.json" ]; then
+            echo "FAIL: expected JSON output file /tmp/bench-file-output.json not found"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists (bench-file input honored)"
+
+      - name: Assert JSON output is valid JSON
+        run: |
+          if ! python3 -c "import json,sys; json.load(open('/tmp/bench-file-output.json'))" 2>/dev/null; then
+            echo "FAIL: bench-file-output.json is not valid JSON"
+            cat /tmp/bench-file-output.json || true
+            exit 1
+          fi
+          echo "PASS: bench-file-output.json is valid JSON"

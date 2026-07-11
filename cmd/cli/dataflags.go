@@ -1,0 +1,125 @@
+package cli
+
+import (
+	"fmt"
+	"regexp"
+	"strings"
+
+	"github.com/goptics/vizb/internal/flags"
+	"github.com/goptics/vizb/pkg/parser"
+)
+
+// DataFlags are the parser/grouping/metadata descriptors every data-consuming
+// command carries (root and every chart subcommand). None has a JSONKey: their
+// values feed parser.Config and dataset metadata (read back by name), never the
+// chart seed. Soft flags warn-and-default; they are never fatal. This replaces
+// the former CommonOptions hand-written Bind + validationRules.
+var DataFlags = []flags.Flag{
+	{Name: "name", Shorthand: "n", Default: "Comparisons", Usage: "Name of the comparison", Kind: flags.KindString},
+	{Name: "theme", Usage: "Initial series color theme (a built-in name or comma-separated hex palette)", Kind: flags.KindString, Default: "default", Normalizer: normalizeThemeFlag, SoftValidate: validateTheme},
+	{Name: "description", Shorthand: "d", Usage: "Description of the comparison", Kind: flags.KindString},
+	{Name: "output", Shorthand: "o", Usage: "Output file path/name", Kind: flags.KindString},
+	{Name: "tag", Shorthand: "t", Usage: "Tag/identifier for the comparison", Kind: flags.KindString},
+	{Name: "id", Usage: "Dataset id for ?id= deep links", Kind: flags.KindString},
+	{
+		Name: "parser", Shorthand: "P", Default: "auto", Kind: flags.KindString,
+		Usage:        "Benchmark parser to use; 'auto' detects from input content (one of: auto, " + strings.Join(parser.AvailableParsers(), ", ") + ")",
+		Label:        "parser",
+		SoftValidate: validateParser,
+	},
+	{
+		Name: "group-pattern", Shorthand: "p", Default: "x", Kind: flags.KindString,
+		Usage:        "Pattern to extract grouping information from data labels / series names; CSV/JSON: bracket slots [x-y-n] split a column value; {label} sets axis titles (e.g. -p '[n{year}-y{months}],z{category}')",
+		Label:        "group pattern",
+		SoftValidate: parser.ValidateGroupPattern,
+	},
+	{Name: "group-regex", Shorthand: "r", Usage: "Regex pattern to extract grouping information from data labels / series names", Kind: flags.KindString},
+	{Name: "group", Shorthand: "g", Usage: "Names dimensions in --group-pattern order; use the same separators as -p (e.g. -g \"name category region\" -p \"x n y\", or -g name,category/region -p x,y/z). csv/json: column/field names; benchmark parsers: axis labels", Kind: flags.KindStringSlice},
+	{Name: "filter", Shorthand: "f", Usage: "Regex to include only matching rows (CSV/JSON: --group label) or benchmark names", Kind: flags.KindString},
+	{
+		Name: "mem-unit", Shorthand: "M", Default: "B", Kind: flags.KindString,
+		Usage:      "Memory unit available: b, B, KB, MB, GB",
+		Label:      "memory unit",
+		ValidSet:   []string{"b", "B", "KB", "MB", "GB"},
+		Normalizer: normalizeMemUnit,
+	},
+	{
+		Name: "time-unit", Shorthand: "T", Default: "ns", Kind: flags.KindString,
+		Usage:    "Time unit available: ns, us, ms, s",
+		Label:    "time unit",
+		ValidSet: []string{"ns", "us", "ms", "s"},
+	},
+	{
+		Name: "number-unit", Shorthand: "N", Kind: flags.KindString,
+		Usage:      "Number unit available: K, M, B, T (default: as-is)",
+		Label:      "number unit",
+		ValidSet:   []string{"K", "M", "B", "T"},
+		Normalizer: strings.ToUpper,
+	},
+	{Name: "select", Usage: "csv/json only: select columns (repeatable); solo mode: 2–3 cols per view as x,y[,z] axes (e.g. --select region,latency); grouped mode: numeric stat columns with optional {label}", Kind: flags.KindStringArray},
+	{Name: "json-path", Usage: "json only: select a nested array to chart via a jq-like dot path (e.g. --json-path '.data.results')", Kind: flags.KindString},
+}
+
+var (
+	builtInThemes = map[string]struct{}{
+		"default": {}, "vintage": {}, "meadow": {}, "westeros": {}, "essos": {},
+		"wonderland": {}, "walden": {}, "chalk": {}, "infographic": {},
+		"macarons": {}, "roma": {}, "shine": {}, "purple-passion": {},
+	}
+	hexColorPattern = regexp.MustCompile(`^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?$`)
+)
+
+// validateTheme accepts a built-in name or a custom palette containing at
+// least two comma-separated #rgb/#rrggbb colors.
+func validateTheme(value string) error {
+	if _, ok := builtInThemes[strings.ToLower(value)]; ok {
+		return nil
+	}
+	colors := strings.Split(value, ",")
+	if len(colors) < 2 {
+		return fmt.Errorf("expected a built-in theme or at least two comma-separated hex colors")
+	}
+	for _, color := range colors {
+		if !hexColorPattern.MatchString(strings.TrimSpace(color)) {
+			return fmt.Errorf("invalid hex color %q", strings.TrimSpace(color))
+		}
+	}
+	return nil
+}
+
+func normalizeThemeFlag(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if _, ok := builtInThemes[strings.ToLower(trimmed)]; ok {
+		return strings.ToLower(trimmed)
+	}
+	colors := strings.Split(trimmed, ",")
+	for i := range colors {
+		colors[i] = strings.TrimSpace(colors[i])
+	}
+	return strings.Join(colors, ",")
+}
+
+// normalizeMemUnit canonicalises lowercase memory units (kb/mb/gb) to their
+// upper form so validation against the valid set passes.
+func normalizeMemUnit(s string) string {
+	switch s {
+	case "kb":
+		return "KB"
+	case "mb":
+		return "MB"
+	case "gb":
+		return "GB"
+	}
+	return s
+}
+
+// validateParser reports whether key names a registered parser (or "auto").
+func validateParser(key string) error {
+	if key == "auto" {
+		return nil
+	}
+	if _, ok := parser.Parsers[key]; !ok {
+		return fmt.Errorf("unknown parser '%s'; available: auto, %v", key, parser.AvailableParsers())
+	}
+	return nil
+}
