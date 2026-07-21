@@ -1,0 +1,58 @@
+name: merge-deploy-examples
+on:
+  workflow_call:
+    inputs:
+      language:
+        required: true
+        type: string
+        description: "Language subdirectory under examples/ (e.g. go, javascript, rust)"
+
+jobs:
+  merge-deploy:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
+
+      - name: Downloading json artifacts
+        if: env.ACT != 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: json-*
+          path: /tmp/jsons
+          merge-multiple: true
+
+      - name: Collect local json artifacts
+        if: env.ACT == 'true'
+        run: |
+          mkdir -p /tmp/jsons
+          cp .act/jsons/*.json /tmp/jsons/
+
+      - name: Prepare output directory
+        env:
+          INPUT_LANGUAGE: ${{ inputs.language }}
+        run: mkdir -p "dist/examples/${INPUT_LANGUAGE}"
+
+      - name: Merging
+        uses: ./
+        with:
+          merge-dir: /tmp/jsons
+          output-html: dist/examples/${{ inputs.language }}/index.html
+          vizb-binary: ${{ env.ACT == 'true' && './bin/vizb' || '' }}
+
+      - name: Local preview ready
+        if: env.ACT == 'true'
+        env:
+          INPUT_LANGUAGE: ${{ inputs.language }}
+        run: echo "::notice::Local preview at dist/examples/${INPUT_LANGUAGE}/index.html"
+
+      - name: Deploying to Github pages
+        if: env.ACT != 'true'
+        uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e # v4.0.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: website
+          publish_dir: dist
+          keep_files: true

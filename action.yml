@@ -129,10 +129,10 @@ runs:
       id: version
       shell: bash
       env:
-        VIZB_BINARY: ${{ inputs.vizb-binary }}
+        INPUT_VIZB_BINARY: ${{ inputs.vizb-binary }}
         ACTION_REF: ${{ github.action_ref }}
       run: |
-        if [ -n "$VIZB_BINARY" ]; then
+        if [ -n "$INPUT_VIZB_BINARY" ]; then
           echo "tag=local" >> "$GITHUB_OUTPUT"
           echo "is-major=false" >> "$GITHUB_OUTPUT"
           exit 0
@@ -159,7 +159,7 @@ runs:
     - name: Cache vizb binary
       if: steps.version.outputs.is-major != 'true' && inputs.vizb-binary == ''
       id: cache-vizb
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
       with:
         path: ~/.local/bin/vizb
         key: vizb-${{ steps.version.outputs.tag }}-${{ runner.os }}-${{ runner.arch }}
@@ -167,13 +167,14 @@ runs:
       if: steps.cache-vizb.outputs.cache-hit != 'true'
       shell: bash
       env:
-        VIZB_BINARY: ${{ inputs.vizb-binary }}
-        RUNNER_OS: ${{ runner.os }}
-        RUNNER_ARCH: ${{ runner.arch }}
-        VIZB_TAG: ${{ steps.version.outputs.tag }}
+        INPUT_VIZB_BINARY: ${{ inputs.vizb-binary }}
+        RUNNER_OS_INPUT: ${{ runner.os }}
+        RUNNER_ARCH_INPUT: ${{ runner.arch }}
+        VERSION_TAG: ${{ steps.version.outputs.tag }}
       run: |
         mkdir -p ~/.local/bin
 
+        VIZB_BINARY="$INPUT_VIZB_BINARY"
         if [ -n "$VIZB_BINARY" ]; then
           echo "::notice::Installing local vizb binary from $VIZB_BINARY"
           cp "$VIZB_BINARY" ~/.local/bin/vizb
@@ -182,12 +183,12 @@ runs:
           exit 0
         fi
 
-        OS=$(echo "$RUNNER_OS" | tr '[:upper:]' '[:lower:]')
+        OS=$(echo "$RUNNER_OS_INPUT" | tr '[:upper:]' '[:lower:]')
         [ "$OS" = "macos" ] && OS="darwin"
-        ARCH=$(echo "$RUNNER_ARCH" | tr '[:upper:]' '[:lower:]')
+        ARCH=$(echo "$RUNNER_ARCH_INPUT" | tr '[:upper:]' '[:lower:]')
         [ "$ARCH" = "x64" ] && ARCH="amd64"
 
-        TAG="$VIZB_TAG"
+        TAG="$VERSION_TAG"
         VERSION="${TAG#v}"
         EXT=".tar.gz"
         [ "$OS" = "windows" ] && EXT=".zip"
@@ -257,14 +258,17 @@ runs:
         fi
 
         {
-          safe_file=$(printf '%s' "$FILE" | tr -d '\n\r')
-          echo "file=$safe_file"
-          safe_cmd=$(printf '%s' "$CMD" | tr -d '\n\r')
-          echo "cmd=$safe_cmd"
+          echo "file<<__VIZB_EOF__"
+          echo "$FILE"
+          echo "__VIZB_EOF__"
+          echo "cmd<<__VIZB_EOF__"
+          echo "$CMD"
+          echo "__VIZB_EOF__"
         } >> "$GITHUB_OUTPUT"
 
-        if [ -n "$INPUT_OUTPUT_JSON" ]; then
-          safe_out_json=$(printf '%s' "$INPUT_OUTPUT_JSON" | tr -d '\n\r')
+        OUT_JSON="$INPUT_OUTPUT_JSON"
+        if [ -n "$OUT_JSON" ]; then
+          safe_out_json=$(printf '%s' "$OUT_JSON" | tr -d '\n\r')
           echo "json_file=$safe_out_json" >> "$GITHUB_OUTPUT"
         else
           echo "json_file=bench.json" >> "$GITHUB_OUTPUT"
@@ -321,10 +325,7 @@ runs:
           INPUT="$RESOLVE_FILE"
         else
           INPUT="${RUNNER_TEMP}/vizb-data-input-$$.txt"
-          _cmd_script="${RUNNER_TEMP}/vizb-cmd-$$.sh"
-          printf '%s\n' "$RESOLVE_CMD" > "$_cmd_script"
-          bash "$_cmd_script" > "$INPUT"
-          rm -f "$_cmd_script"
+          sh -c "$RESOLVE_CMD" > "$INPUT"
         fi
 
         vizb "$INPUT" -o "$RESOLVE_JSON_FILE" "${VIZB_ARGS[@]}"
@@ -342,6 +343,7 @@ runs:
         FILES=()
         [ -f "$JSON_FILE" ] && FILES+=("$JSON_FILE")
         if [ -n "$INPUT_MERGE_FILES" ]; then
+          # Safely split the space-separated list without glob expansion or metacharacter injection
           IFS=' ' read -ra _merge_files <<< "$INPUT_MERGE_FILES"
           FILES+=("${_merge_files[@]}")
         fi

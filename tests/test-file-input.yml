@@ -1,4 +1,4 @@
-name: Test deprecated bench-cmd input backward compatibility
+name: Test file input CSV
 on:
   workflow_dispatch:
 jobs:
@@ -14,17 +14,23 @@ jobs:
           chmod +x /tmp/vizb-bin/vizb
           echo "Fake vizb binary ready"
 
+      - name: Create CSV fixture file
+        run: |
+          printf 'name,score\nalpha,100\nbeta,200\ngamma,150\n' > /tmp/vizb-data.csv
+          echo "CSV fixture created:"
+          cat /tmp/vizb-data.csv
+
       - id: action
         uses: .
         with:
           vizb-binary: "/tmp/vizb-bin/vizb"
-          bench-cmd: "printf 'name,value\\nalpha,100\\nbeta,200'"
-          name: "Deprecated Input Test"
-          output-json: "/tmp/vizb-deprecated-test.json"
+          file: "/tmp/vizb-data.csv"
+          name: "Score Comparison"
+          output-json: "/tmp/vizb-file-output.json"
 
       - name: Assert JSON output file exists
         run: |
-          JSON_PATH="/tmp/vizb-deprecated-test.json"
+          JSON_PATH="/tmp/vizb-file-output.json"
           echo "Checking for JSON file at: $JSON_PATH"
           if [ ! -f "$JSON_PATH" ]; then
             echo "FAIL: JSON output file not found at $JSON_PATH"
@@ -34,10 +40,22 @@ jobs:
 
       - name: Assert JSON output is valid JSON
         run: |
-          JSON_PATH="/tmp/vizb-deprecated-test.json"
+          JSON_PATH="/tmp/vizb-file-output.json"
           if ! python3 -c "import json, sys; json.load(open('$JSON_PATH'))" 2>/dev/null; then
             echo "FAIL: Output is not valid JSON"
             cat "$JSON_PATH"
             exit 1
           fi
           echo "PASS: Output is valid JSON"
+
+      - name: Assert output-file-json action output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          EXPECTED="/tmp/vizb-file-output.json"
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "FAIL: expected '$EXPECTED' but got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

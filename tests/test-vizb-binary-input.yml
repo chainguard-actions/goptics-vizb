@@ -1,4 +1,4 @@
-name: Test deprecated bench-cmd input backward compatibility
+name: Test vizb-binary pre-built binary input
 on:
   workflow_dispatch:
 jobs:
@@ -12,19 +12,19 @@ jobs:
           mkdir -p /tmp/vizb-bin
           cp "$GITHUB_WORKSPACE/tests/fixtures/fake-vizb.sh" /tmp/vizb-bin/vizb
           chmod +x /tmp/vizb-bin/vizb
-          echo "Fake vizb binary ready"
+          echo "Fake vizb binary ready at: /tmp/vizb-bin/vizb"
 
       - id: action
         uses: .
         with:
           vizb-binary: "/tmp/vizb-bin/vizb"
-          bench-cmd: "printf 'name,value\\nalpha,100\\nbeta,200'"
-          name: "Deprecated Input Test"
-          output-json: "/tmp/vizb-deprecated-test.json"
+          cmd: "printf 'name,value\\nfoo,10\\nbar,20'"
+          name: "Binary Input Test"
+          output-json: "/tmp/vizb-binary-test.json"
 
       - name: Assert JSON output file exists
         run: |
-          JSON_PATH="/tmp/vizb-deprecated-test.json"
+          JSON_PATH="/tmp/vizb-binary-test.json"
           echo "Checking for JSON file at: $JSON_PATH"
           if [ ! -f "$JSON_PATH" ]; then
             echo "FAIL: JSON output file not found at $JSON_PATH"
@@ -34,7 +34,7 @@ jobs:
 
       - name: Assert JSON output is valid JSON
         run: |
-          JSON_PATH="/tmp/vizb-deprecated-test.json"
+          JSON_PATH="/tmp/vizb-binary-test.json"
           if ! python3 -c "import json, sys; json.load(open('$JSON_PATH'))" 2>/dev/null; then
             echo "FAIL: Output is not valid JSON"
             cat "$JSON_PATH"

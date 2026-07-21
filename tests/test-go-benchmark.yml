@@ -1,0 +1,61 @@
+name: Test Go benchmark output parsing
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Prepare fake vizb binary
+        run: |
+          mkdir -p /tmp/vizb-bin
+          cp "$GITHUB_WORKSPACE/tests/fixtures/fake-vizb.sh" /tmp/vizb-bin/vizb
+          chmod +x /tmp/vizb-bin/vizb
+          echo "Fake vizb binary ready"
+
+      - name: Create Go benchmark fixture
+        run: |
+          printf 'goos: linux\ngoarch: amd64\npkg: example/pkg\nBenchmarkFoo-8   \t 1000000\t      1234 ns/op\t     128 B/op\t       2 allocs/op\nBenchmarkBar-8   \t  500000\t      2345 ns/op\t     256 B/op\t       4 allocs/op\nBenchmarkBaz-8   \t 2000000\t       567 ns/op\t      64 B/op\t       1 allocs/op\nPASS\n' > /tmp/vizb-bench.txt
+          echo "Benchmark fixture created:"
+          cat /tmp/vizb-bench.txt
+
+      - id: action
+        uses: .
+        with:
+          vizb-binary: "/tmp/vizb-bin/vizb"
+          file: "/tmp/vizb-bench.txt"
+          parser: "go"
+          name: "Go Benchmark Results"
+          output-json: "/tmp/vizb-go-bench.json"
+
+      - name: Assert JSON output file exists
+        run: |
+          JSON_PATH="/tmp/vizb-go-bench.json"
+          echo "Checking for JSON file at: $JSON_PATH"
+          if [ ! -f "$JSON_PATH" ]; then
+            echo "FAIL: JSON output file not found at $JSON_PATH"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert JSON output is valid JSON
+        run: |
+          JSON_PATH="/tmp/vizb-go-bench.json"
+          if ! python3 -c "import json, sys; json.load(open('$JSON_PATH'))" 2>/dev/null; then
+            echo "FAIL: Output is not valid JSON"
+            cat "$JSON_PATH"
+            exit 1
+          fi
+          echo "PASS: Output is valid JSON"
+
+      - name: Assert JSON contains benchmark data
+        run: |
+          JSON_PATH="/tmp/vizb-go-bench.json"
+          CONTENT=$(cat "$JSON_PATH")
+          echo "JSON content: $CONTENT"
+          if ! echo "$CONTENT" | grep -qi "Benchmark"; then
+            echo "FAIL: JSON does not contain benchmark data"
+            exit 1
+          fi
+          echo "PASS: JSON contains benchmark data"

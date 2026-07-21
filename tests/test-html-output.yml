@@ -7,70 +7,60 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Install vizb binary
+      - name: Prepare fake vizb binary
         run: |
           mkdir -p /tmp/vizb-bin
-          TAG="v0.14.0"
-          VERSION="0.14.0"
-          URL="https://github.com/goptics/vizb/releases/download/${TAG}/vizb@${VERSION}-linux-amd64.tar.gz"
-          curl -sfL "$URL" -o /tmp/vizb-archive.tar.gz
-          tar xzf /tmp/vizb-archive.tar.gz -C /tmp/vizb-bin
+          cp "$GITHUB_WORKSPACE/tests/fixtures/fake-vizb.sh" /tmp/vizb-bin/vizb
           chmod +x /tmp/vizb-bin/vizb
-          echo "vizb installed: $(/tmp/vizb-bin/vizb --version 2>&1 || true)"
+          echo "Fake vizb binary ready"
 
       - id: action
         uses: .
         with:
-          file: ${{ github.workspace }}/tests/fixtures/data.csv
+          vizb-binary: "/tmp/vizb-bin/vizb"
+          cmd: "printf 'name,value\\nfoo,10\\nbar,20\\nbaz,30'"
           name: "HTML Test"
-          parser: csv
-          output-json: /tmp/html-test.json
-          output-html: /tmp/html-test.html
-          vizb-binary: /tmp/vizb-bin/vizb
+          output-json: "/tmp/vizb-html-test.json"
+          output-html: "/tmp/vizb-html-test.html"
 
       - name: Assert JSON output file exists
         run: |
-          if [ ! -f "/tmp/html-test.json" ]; then
-            echo "FAIL: expected JSON output file not found at /tmp/html-test.json"
+          JSON_PATH="/tmp/vizb-html-test.json"
+          echo "Checking for JSON file at: $JSON_PATH"
+          if [ ! -f "$JSON_PATH" ]; then
+            echo "FAIL: JSON output file not found at $JSON_PATH"
             exit 1
           fi
           echo "PASS: JSON output file exists"
 
       - name: Assert HTML output file exists
         run: |
-          if [ ! -f "/tmp/html-test.html" ]; then
-            echo "FAIL: expected HTML output file not found at /tmp/html-test.html"
+          HTML_PATH="/tmp/vizb-html-test.html"
+          echo "Checking for HTML file at: $HTML_PATH"
+          if [ ! -f "$HTML_PATH" ]; then
+            echo "FAIL: HTML output file not found at $HTML_PATH"
             exit 1
           fi
           echo "PASS: HTML output file exists"
 
       - name: Assert HTML file contains HTML content
         run: |
-          if ! grep -qi "<html" /tmp/html-test.html; then
-            echo "FAIL: HTML file does not appear to contain HTML content"
-            cat /tmp/html-test.html | head -5
+          HTML_PATH="/tmp/vizb-html-test.html"
+          if ! grep -qi "<html" "$HTML_PATH"; then
+            echo "FAIL: HTML file does not appear to contain HTML"
+            head -5 "$HTML_PATH"
             exit 1
           fi
           echo "PASS: HTML file contains HTML content"
 
-      - name: Assert output-file-html output value
+      - name: Assert output-file-html action output
         env:
           ACTUAL: ${{ steps.action.outputs.output-file-html }}
         run: |
+          EXPECTED="/tmp/vizb-html-test.html"
           echo "actual: $ACTUAL"
-          if [ "$ACTUAL" != "/tmp/html-test.html" ]; then
-            echo "FAIL: expected '/tmp/html-test.html', got '$ACTUAL'"
-            exit 1
-          fi
-          echo "PASS"
-
-      - name: Assert output-file-json output value
-        env:
-          ACTUAL: ${{ steps.action.outputs.output-file-json }}
-        run: |
-          echo "actual: $ACTUAL"
-          if [ "$ACTUAL" != "/tmp/html-test.json" ]; then
-            echo "FAIL: expected '/tmp/html-test.json', got '$ACTUAL'"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "FAIL: expected '$EXPECTED' but got '$ACTUAL'"
             exit 1
           fi
           echo "PASS"

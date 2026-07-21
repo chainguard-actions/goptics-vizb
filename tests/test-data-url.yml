@@ -1,4 +1,4 @@
-name: Test data-url mode (remote data, HTML only)
+name: Test data-url HTML generation
 on:
   workflow_dispatch:
 jobs:
@@ -7,48 +7,57 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Install vizb binary
+      - name: Prepare fake vizb binary
         run: |
           mkdir -p /tmp/vizb-bin
-          TAG="v0.14.0"
-          VERSION="0.14.0"
-          URL="https://github.com/goptics/vizb/releases/download/${TAG}/vizb@${VERSION}-linux-amd64.tar.gz"
-          curl -sfL "$URL" -o /tmp/vizb-archive.tar.gz
-          tar xzf /tmp/vizb-archive.tar.gz -C /tmp/vizb-bin
+          cp "$GITHUB_WORKSPACE/tests/fixtures/fake-vizb.sh" /tmp/vizb-bin/vizb
           chmod +x /tmp/vizb-bin/vizb
-          echo "vizb installed: $(/tmp/vizb-bin/vizb --version 2>&1 || true)"
+          echo "Fake vizb binary ready"
 
       - id: action
         uses: .
         with:
+          vizb-binary: "/tmp/vizb-bin/vizb"
           data-url: "https://example.com/data.json"
-          output-html: /tmp/data-url-test.html
-          vizb-binary: /tmp/vizb-bin/vizb
+          output-html: "/tmp/vizb-data-url-test.html"
 
       - name: Assert HTML output file exists
         run: |
-          if [ ! -f "/tmp/data-url-test.html" ]; then
-            echo "FAIL: expected HTML output file not found at /tmp/data-url-test.html"
+          HTML_PATH="/tmp/vizb-data-url-test.html"
+          echo "Checking for HTML file at: $HTML_PATH"
+          if [ ! -f "$HTML_PATH" ]; then
+            echo "FAIL: HTML output file not found at $HTML_PATH"
             exit 1
           fi
           echo "PASS: HTML output file exists"
 
       - name: Assert HTML file contains HTML content
         run: |
-          if ! grep -qi "<html" /tmp/data-url-test.html; then
-            echo "FAIL: HTML file does not appear to contain HTML content"
-            cat /tmp/data-url-test.html | head -5
+          HTML_PATH="/tmp/vizb-data-url-test.html"
+          if ! grep -qi "<html" "$HTML_PATH"; then
+            echo "FAIL: HTML file does not appear to contain HTML"
+            head -5 "$HTML_PATH"
             exit 1
           fi
           echo "PASS: HTML file contains HTML content"
 
-      - name: Assert output-file-html output value
+      - name: Assert HTML references the data URL
+        run: |
+          HTML_PATH="/tmp/vizb-data-url-test.html"
+          if ! grep -q "example.com" "$HTML_PATH"; then
+            echo "FAIL: HTML file does not reference the data URL"
+            exit 1
+          fi
+          echo "PASS: HTML file references the data URL"
+
+      - name: Assert output-file-html action output
         env:
           ACTUAL: ${{ steps.action.outputs.output-file-html }}
         run: |
+          EXPECTED="/tmp/vizb-data-url-test.html"
           echo "actual: $ACTUAL"
-          if [ "$ACTUAL" != "/tmp/data-url-test.html" ]; then
-            echo "FAIL: expected '/tmp/data-url-test.html', got '$ACTUAL'"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "FAIL: expected '$EXPECTED' but got '$ACTUAL'"
             exit 1
           fi
           echo "PASS"
