@@ -7,63 +7,66 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Install vizb binary
-        id: install-vizb
-        shell: bash
+      - name: Download vizb binary from GitHub releases
         run: |
-          OS="linux"
-          ARCH="amd64"
-          TAG="v0.14.1"
-          VERSION="0.14.1"
-          URL="https://github.com/goptics/vizb/releases/download/${TAG}/vizb@${VERSION}-${OS}-${ARCH}.tar.gz"
-          mkdir -p /tmp/vizb-install
-          curl -sfL "$URL" -o /tmp/vizb-install/vizb-archive.tar.gz
-          tar xzf /tmp/vizb-install/vizb-archive.tar.gz -C /tmp/vizb-install
-          chmod +x /tmp/vizb-install/vizb
-          echo "binary=/tmp/vizb-install/vizb" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/vizb-bin"
+          curl -sfL "https://github.com/goptics/vizb/releases/download/v0.14.1/vizb@0.14.1-linux-amd64.tar.gz" \
+            -o "$RUNNER_TEMP/vizb-bin/vizb.tar.gz"
+          tar xzf "$RUNNER_TEMP/vizb-bin/vizb.tar.gz" -C "$RUNNER_TEMP/vizb-bin"
+          chmod +x "$RUNNER_TEMP/vizb-bin/vizb"
+          echo "vizb version: $("$RUNNER_TEMP/vizb-bin/vizb" --version 2>&1 || true)"
 
       - id: action
         uses: .
         with:
-          file: "${{ github.workspace }}/tests/fixtures/data.csv"
-          name: "HTML Test"
-          parser: csv
-          output-json: /tmp/vizb-html-test.json
-          output-html: /tmp/vizb-html-test.html
-          vizb-binary: ${{ steps.install-vizb.outputs.binary }}
+          vizb-binary: "${{ runner.temp }}/vizb-bin/vizb"
+          cmd: "printf 'framework,requests_per_sec\\nExpress,12000\\nFastify,28000\\nHono,45000\\n'"
+          name: "Framework Benchmark"
+          description: "HTTP framework throughput comparison"
+          output-json: "${{ runner.temp }}/bench.json"
+          output-html: "${{ runner.temp }}/bench.html"
 
       - name: Assert JSON output file exists
         run: |
-          if [ ! -f "/tmp/vizb-html-test.json" ]; then
-            echo "FAIL: expected JSON output file not found at /tmp/vizb-html-test.json"
+          JSON_PATH="${{ runner.temp }}/bench.json"
+          if [ ! -f "$JSON_PATH" ]; then
+            echo "FAIL: JSON output file not found at $JSON_PATH"
             exit 1
           fi
           echo "PASS: JSON output file exists"
 
       - name: Assert HTML output file exists
         run: |
-          if [ ! -f "/tmp/vizb-html-test.html" ]; then
-            echo "FAIL: expected HTML output file not found at /tmp/vizb-html-test.html"
+          HTML_PATH="${{ runner.temp }}/bench.html"
+          if [ ! -f "$HTML_PATH" ]; then
+            echo "FAIL: HTML output file not found at $HTML_PATH"
             exit 1
           fi
           echo "PASS: HTML output file exists"
 
-      - name: Assert HTML file contains expected content
+      - name: Assert HTML output is non-empty and looks like HTML
         run: |
-          if ! grep -qi "<html" /tmp/vizb-html-test.html; then
-            echo "FAIL: HTML file does not appear to contain HTML content"
-            head -5 /tmp/vizb-html-test.html
+          HTML_PATH="${{ runner.temp }}/bench.html"
+          CONTENT=$(cat "$HTML_PATH")
+          echo "HTML content length: ${#CONTENT}"
+          if [ -z "$CONTENT" ]; then
+            echo "FAIL: HTML output is empty"
             exit 1
           fi
-          echo "PASS: HTML file contains HTML content"
+          if ! echo "$CONTENT" | grep -qi "<html"; then
+            echo "FAIL: HTML output does not contain <html tag"
+            exit 1
+          fi
+          echo "PASS: HTML output is non-empty and contains HTML"
 
       - name: Assert output-file-html action output
         env:
           ACTUAL: ${{ steps.action.outputs.output-file-html }}
         run: |
-          echo "actual: $ACTUAL"
-          if [ "$ACTUAL" != "/tmp/vizb-html-test.html" ]; then
-            echo "FAIL: expected output-file-html to be '/tmp/vizb-html-test.html', got '$ACTUAL'"
+          echo "actual output-file-html: $ACTUAL"
+          EXPECTED="${{ runner.temp }}/bench.html"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "FAIL: expected output-file-html='$EXPECTED', got '$ACTUAL'"
             exit 1
           fi
           echo "PASS"
@@ -72,9 +75,10 @@ jobs:
         env:
           ACTUAL: ${{ steps.action.outputs.output-file-json }}
         run: |
-          echo "actual: $ACTUAL"
-          if [ "$ACTUAL" != "/tmp/vizb-html-test.json" ]; then
-            echo "FAIL: expected output-file-json to be '/tmp/vizb-html-test.json', got '$ACTUAL'"
+          echo "actual output-file-json: $ACTUAL"
+          EXPECTED="${{ runner.temp }}/bench.json"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "FAIL: expected output-file-json='$EXPECTED', got '$ACTUAL'"
             exit 1
           fi
           echo "PASS"

@@ -1,0 +1,50 @@
+name: Test deprecated bench-cmd alias (backward compatibility)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Download vizb binary from GitHub releases
+        run: |
+          mkdir -p "$RUNNER_TEMP/vizb-bin"
+          curl -sfL "https://github.com/goptics/vizb/releases/download/v0.14.1/vizb@0.14.1-linux-amd64.tar.gz" \
+            -o "$RUNNER_TEMP/vizb-bin/vizb.tar.gz"
+          tar xzf "$RUNNER_TEMP/vizb-bin/vizb.tar.gz" -C "$RUNNER_TEMP/vizb-bin"
+          chmod +x "$RUNNER_TEMP/vizb-bin/vizb"
+          echo "vizb version: $("$RUNNER_TEMP/vizb-bin/vizb" --version 2>&1 || true)"
+
+      - id: action
+        uses: .
+        with:
+          vizb-binary: "${{ runner.temp }}/vizb-bin/vizb"
+          bench-cmd: "printf 'language,parse_ms\\nGo,12\\nRust,8\\nPython,45\\n'"
+          name: "Parser Benchmark"
+          output-json: "${{ runner.temp }}/parsers.json"
+
+      - name: Assert JSON output file exists via deprecated bench-cmd
+        run: |
+          JSON_PATH="${{ runner.temp }}/parsers.json"
+          echo "Checking for JSON output at: $JSON_PATH"
+          if [ ! -f "$JSON_PATH" ]; then
+            echo "FAIL: JSON output file not found at $JSON_PATH (bench-cmd alias not working)"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists (bench-cmd alias works)"
+
+      - name: Assert JSON output is valid
+        run: |
+          JSON_PATH="${{ runner.temp }}/parsers.json"
+          CONTENT=$(cat "$JSON_PATH")
+          echo "JSON content (first 500 chars): ${CONTENT:0:500}"
+          if [ -z "$CONTENT" ]; then
+            echo "FAIL: JSON output is empty"
+            exit 1
+          fi
+          if ! echo "$CONTENT" | python3 -c "import sys, json; json.load(sys.stdin)" 2>/dev/null; then
+            echo "FAIL: JSON output is not valid JSON"
+            exit 1
+          fi
+          echo "PASS: JSON output is valid"

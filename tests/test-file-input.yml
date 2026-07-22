@@ -1,0 +1,66 @@
+name: Test file input with CSV
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Download vizb binary from GitHub releases
+        run: |
+          mkdir -p "$RUNNER_TEMP/vizb-bin"
+          curl -sfL "https://github.com/goptics/vizb/releases/download/v0.14.1/vizb@0.14.1-linux-amd64.tar.gz" \
+            -o "$RUNNER_TEMP/vizb-bin/vizb.tar.gz"
+          tar xzf "$RUNNER_TEMP/vizb-bin/vizb.tar.gz" -C "$RUNNER_TEMP/vizb-bin"
+          chmod +x "$RUNNER_TEMP/vizb-bin/vizb"
+          echo "vizb version: $("$RUNNER_TEMP/vizb-bin/vizb" --version 2>&1 || true)"
+
+      - name: Create CSV fixture file
+        run: |
+          printf 'name,score\nAlice,95\nBob,87\nCarol,92\nDave,78\n' > "${{ runner.temp }}/data.csv"
+
+      - id: action
+        uses: .
+        with:
+          vizb-binary: "${{ runner.temp }}/vizb-bin/vizb"
+          file: "${{ runner.temp }}/data.csv"
+          name: "Score Comparison"
+          output-json: "${{ runner.temp }}/scores.json"
+
+      - name: Assert JSON output file exists
+        run: |
+          JSON_PATH="${{ runner.temp }}/scores.json"
+          echo "Checking for JSON output at: $JSON_PATH"
+          if [ ! -f "$JSON_PATH" ]; then
+            echo "FAIL: JSON output file not found at $JSON_PATH"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert JSON output is valid
+        run: |
+          JSON_PATH="${{ runner.temp }}/scores.json"
+          CONTENT=$(cat "$JSON_PATH")
+          echo "JSON content (first 500 chars): ${CONTENT:0:500}"
+          if [ -z "$CONTENT" ]; then
+            echo "FAIL: JSON output is empty"
+            exit 1
+          fi
+          if ! echo "$CONTENT" | python3 -c "import sys, json; json.load(sys.stdin)" 2>/dev/null; then
+            echo "FAIL: JSON output is not valid JSON"
+            exit 1
+          fi
+          echo "PASS: JSON output is valid"
+
+      - name: Assert output-file-json action output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual output-file-json: $ACTUAL"
+          EXPECTED="${{ runner.temp }}/scores.json"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "FAIL: expected output-file-json='$EXPECTED', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

@@ -10,8 +10,6 @@ permissions: {}
 jobs:
   convert:
     name: Convert JSON Data
-    permissions:
-      contents: read
     strategy:
       matrix:
         include:
@@ -38,7 +36,7 @@ jobs:
 
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: ${{ matrix.user }}
         uses: ./
@@ -60,7 +58,7 @@ jobs:
         if: env.ACT == 'true'
         env:
           MATRIX_ID: ${{ matrix.id }}
-        run: mkdir -p .act/jsons && cp "${MATRIX_ID}.json" .act/jsons/
+        run: mkdir -p .act/jsons && cp "$MATRIX_ID.json" .act/jsons/
 
       - name: Uploading json artifacts
         if: env.ACT != 'true'

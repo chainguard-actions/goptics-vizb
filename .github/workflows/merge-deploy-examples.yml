@@ -14,7 +14,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Downloading json artifacts
         if: env.ACT != 'true'
@@ -33,7 +33,7 @@ jobs:
       - name: Prepare output directory
         env:
           INPUT_LANGUAGE: ${{ inputs.language }}
-        run: mkdir -p "dist/examples/${INPUT_LANGUAGE}"
+        run: mkdir -p "dist/examples/$INPUT_LANGUAGE"
 
       - name: Merging
         uses: ./
@@ -46,7 +46,7 @@ jobs:
         if: env.ACT == 'true'
         env:
           INPUT_LANGUAGE: ${{ inputs.language }}
-        run: echo "::notice::Local preview at dist/examples/${INPUT_LANGUAGE}/index.html"
+        run: echo "::notice::Local preview at dist/examples/$INPUT_LANGUAGE/index.html"
 
       - name: Deploying to Github pages
         if: env.ACT != 'true'

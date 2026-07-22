@@ -1,4 +1,4 @@
-name: Test data-url mode (remote data, HTML only)
+name: Test data-url HTML generation (no input needed)
 on:
   workflow_dispatch:
 jobs:
@@ -7,53 +7,54 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Install vizb binary
-        id: install-vizb
-        shell: bash
+      - name: Download vizb binary from GitHub releases
         run: |
-          OS="linux"
-          ARCH="amd64"
-          TAG="v0.14.1"
-          VERSION="0.14.1"
-          URL="https://github.com/goptics/vizb/releases/download/${TAG}/vizb@${VERSION}-${OS}-${ARCH}.tar.gz"
-          mkdir -p /tmp/vizb-install
-          curl -sfL "$URL" -o /tmp/vizb-install/vizb-archive.tar.gz
-          tar xzf /tmp/vizb-install/vizb-archive.tar.gz -C /tmp/vizb-install
-          chmod +x /tmp/vizb-install/vizb
-          echo "binary=/tmp/vizb-install/vizb" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/vizb-bin"
+          curl -sfL "https://github.com/goptics/vizb/releases/download/v0.14.1/vizb@0.14.1-linux-amd64.tar.gz" \
+            -o "$RUNNER_TEMP/vizb-bin/vizb.tar.gz"
+          tar xzf "$RUNNER_TEMP/vizb-bin/vizb.tar.gz" -C "$RUNNER_TEMP/vizb-bin"
+          chmod +x "$RUNNER_TEMP/vizb-bin/vizb"
+          echo "vizb version: $("$RUNNER_TEMP/vizb-bin/vizb" --version 2>&1 || true)"
 
       - id: action
         uses: .
         with:
+          vizb-binary: "${{ runner.temp }}/vizb-bin/vizb"
           data-url: "https://example.com/data.json"
-          name: "Remote Data Test"
-          output-html: /tmp/vizb-dataurl-test.html
-          vizb-binary: ${{ steps.install-vizb.outputs.binary }}
+          output-html: "${{ runner.temp }}/remote.html"
 
       - name: Assert HTML output file exists
         run: |
-          if [ ! -f "/tmp/vizb-dataurl-test.html" ]; then
-            echo "FAIL: expected HTML output file not found at /tmp/vizb-dataurl-test.html"
+          HTML_PATH="${{ runner.temp }}/remote.html"
+          if [ ! -f "$HTML_PATH" ]; then
+            echo "FAIL: HTML output file not found at $HTML_PATH"
             exit 1
           fi
           echo "PASS: HTML output file exists"
 
-      - name: Assert HTML file contains expected content
+      - name: Assert HTML output is non-empty and looks like HTML
         run: |
-          if ! grep -qi "<html" /tmp/vizb-dataurl-test.html; then
-            echo "FAIL: HTML file does not appear to contain HTML content"
-            head -5 /tmp/vizb-dataurl-test.html
+          HTML_PATH="${{ runner.temp }}/remote.html"
+          CONTENT=$(cat "$HTML_PATH")
+          echo "HTML content length: ${#CONTENT}"
+          if [ -z "$CONTENT" ]; then
+            echo "FAIL: HTML output is empty"
             exit 1
           fi
-          echo "PASS: HTML file contains HTML content"
+          if ! echo "$CONTENT" | grep -qi "<html"; then
+            echo "FAIL: HTML output does not contain <html tag"
+            exit 1
+          fi
+          echo "PASS: HTML output is non-empty and contains HTML"
 
       - name: Assert output-file-html action output
         env:
           ACTUAL: ${{ steps.action.outputs.output-file-html }}
         run: |
-          echo "actual: $ACTUAL"
-          if [ "$ACTUAL" != "/tmp/vizb-dataurl-test.html" ]; then
-            echo "FAIL: expected output-file-html to be '/tmp/vizb-dataurl-test.html', got '$ACTUAL'"
+          echo "actual output-file-html: $ACTUAL"
+          EXPECTED="${{ runner.temp }}/remote.html"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "FAIL: expected output-file-html='$EXPECTED', got '$ACTUAL'"
             exit 1
           fi
           echo "PASS"
