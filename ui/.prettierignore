@@ -1,0 +1,12 @@
+dist
+node_modules
+.output
+public
+pnpm-lock.yaml
+package-lock.json
+.pnpm-store
+test-results
+playwright-report
+blob-report
+coverage
+

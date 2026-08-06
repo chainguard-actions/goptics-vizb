@@ -1,0 +1,128 @@
+name: CLI
+
+on:
+  workflow_call:
+  push:
+    branches: [main]
+    paths:
+      - '**.go'
+      - go.mod
+      - go.sum
+      - .goreleaser.yml
+      - action.yml
+      - .github/workflows/action-ci.yml
+      - .github/workflows/cli.yml
+      - .github/actions/setup-embed-ui/**
+  pull_request:
+    branches: [main]
+    paths:
+      - '**.go'
+      - go.mod
+      - go.sum
+      - .goreleaser.yml
+      - action.yml
+      - .github/workflows/action-ci.yml
+      - .github/workflows/cli.yml
+      - .github/actions/setup-embed-ui/**
+
+permissions: {}
+
+jobs:
+  embed-ui:
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup embed UI
+        uses: ./.github/actions/setup-embed-ui
+
+      - name: Upload embedded UI
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: cli-embedded-ui-${{ github.sha }}
+          path: pkg/template/vizb-ui.gen.go
+          if-no-files-found: error
+
+  lint:
+    needs: embed-ui
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download embedded UI
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: cli-embedded-ui-${{ github.sha }}
+          path: pkg/template
+
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v2.12
+
+  format:
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+
+      - name: Check gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "$unformatted"
+            exit 1
+          fi
+
+  test:
+    needs: embed-ui
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download embedded UI
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: cli-embedded-ui-${{ github.sha }}
+          path: pkg/template
+
+      - run: go mod download
+
+      - run: go test -count=1 -coverpkg=./... -coverprofile=coverage.txt -covermode=atomic ./...
+
+      - uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          files: ./coverage.txt
+          flags: cli
+          name: cli
+
+  action:
+    needs: [lint, format, test]
+    uses: ./.github/workflows/action-ci.yml

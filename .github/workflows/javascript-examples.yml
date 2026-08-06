@@ -1,0 +1,95 @@
+name: "Examples: JavaScript"
+on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/javascript/**"
+      - "action.yml"
+      - ".github/workflows/merge-examples.yml"
+      - ".github/workflows/javascript-examples.yml"
+  workflow_call:
+    inputs:
+      publish:
+        required: false
+        type: boolean
+        default: false
+        description: "Publish after merge (default false; set true to publish immediately)"
+  workflow_dispatch:
+    inputs:
+      publish:
+        required: false
+        type: boolean
+        default: true
+        description: "Publish after merge (default true; set false to prepare-only)"
+
+jobs:
+  convert:
+    name: Convert JavaScript Benchmarks
+    strategy:
+      matrix:
+        include:
+          - id: 00-tinybench
+            file: tinybench
+            name: "Bubble Vs Insertion Sort (tinybench)"
+            description: "Tinybench output — algorithm on X, input size on Y"
+            group-pattern: x/y
+          - id: 01-vitest
+            file: vitest
+            name: "Bubble Vs Insertion Sort (vitest)"
+            description: "Vitest bench output — benchmark name and case from regex groups"
+            group-regex: "n=(?<y>.*)/(?<x>.*)"
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: ${{ matrix.name }}
+        uses: ./
+        with:
+          file: examples/javascript/${{ matrix.file }}.txt
+          id: ${{ matrix.id }}
+          name: ${{ matrix.name }}
+          description: ${{ matrix.description }}
+          group-pattern: ${{ matrix.group-pattern }}
+          group-regex: ${{ matrix.group-regex }}
+          chart: |
+            bar:scale=log,sort=asc
+            line:scale=log,sort=asc
+            pie:sort=asc
+          output-json: ${{ matrix.id }}.json
+          vizb-binary: ${{ env.ACT == 'true' && './bin/vizb' || '' }}
+
+      - name: Stage json for local merge
+        if: env.ACT == 'true'
+        env:
+          MATRIX_ID: ${{ matrix.id }}
+        run: mkdir -p .act/jsons && cp "${MATRIX_ID}.json" .act/jsons/
+
+      - name: Uploading json artifacts
+        if: env.ACT != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: json-javascript-${{ matrix.id }}
+          path: ${{ matrix.id }}.json
+
+  merge:
+    name: Merge JavaScript Benchmarks
+    needs: convert
+    permissions:
+      contents: read
+    uses: ./.github/workflows/merge-examples.yml
+    with:
+      example_category: javascript
+
+  publish:
+    name: Publish JavaScript examples
+    needs: merge
+    if: ${{ github.event_name == 'push' || inputs.publish }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/publish-site.yml
+    with:
+      artifact_pattern: site-examples-javascript
+      keep_files: true
