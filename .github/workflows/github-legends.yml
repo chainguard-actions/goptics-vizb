@@ -1,0 +1,129 @@
+name: "Examples: GitHub Legends"
+on:
+  push:
+    branches: [main]
+    paths:
+      - "action.yml"
+      - ".github/workflows/merge-examples.yml"
+      - ".github/workflows/github-legends.yml"
+  schedule:
+    # Refresh contribution skylines every Friday (data is live from the API).
+    - cron: '0 12 * * 5'
+  workflow_call:
+    inputs:
+      publish:
+        required: false
+        type: boolean
+        default: false
+        description: "Publish after merge (default false; set true to publish immediately)"
+  workflow_dispatch:
+    inputs:
+      publish:
+        required: false
+        type: boolean
+        default: true
+        description: "Publish after merge (default true; set false to prepare-only)"
+
+permissions:
+  contents: read
+
+jobs:
+  convert:
+    name: Convert GitHub Legends
+    strategy:
+      max-parallel: 3
+      matrix:
+        include:
+          - serial: "00"
+            id: torvalds
+            description: "Linus Torvalds, creator and lead developer of the Linux kernel and creator of Git"
+
+          - serial: "01"
+            id: ahmadawais
+            description: "Ahmad Awais, GitHub Star and open source engineer behind hundreds of developer tools"
+
+          - serial: "02"
+            id: antirez
+            description: "Salvatore Sanfilippo, creator of Redis"
+
+          - serial: "03"
+            id: gvanrossum
+            description: "Guido van Rossum, creator of the Python programming language"
+
+          - serial: "04"
+            id: sindresorhus
+            description: "Sindre Sorhus, prolific open source maintainer of widely used JavaScript packages"
+
+          - serial: "05"
+            id: yyx990803
+            description: "Evan You, creator of Vue.js and Vite"
+
+          - serial: "06"
+            id: gaearon
+            description: "Dan Abramov, co-creator of Redux and a former React core team member"
+
+          - serial: "07"
+            id: isaacs
+            description: "Isaac Z. Schlueter, creator of npm and co-founder of vlt"
+
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: ${{ matrix.id }}
+        uses: ./
+        with:
+          cmd: curl -sfL "https://github-contributions-api.jogruber.de/v4/${{ matrix.id }}"
+          id: ${{ matrix.id }}
+          name: ${{ matrix.id }}
+          description: ${{ matrix.description }}
+          group: date
+          group-pattern: "[z{Year}-y{Month}-x{Date}]"
+          json-path: ".contributions"
+          select: "count{Contributions}"
+          stat: all
+          charts: bar
+          output-json: ${{ matrix.serial }}-${{ matrix.id }}.json
+          vizb-binary: ${{ env.ACT == 'true' && './bin/vizb' || '' }}
+
+      - name: Stage json for local merge
+        if: env.ACT == 'true'
+        env:
+          MATRIX_SERIAL: ${{ matrix.serial }}
+          MATRIX_ID: ${{ matrix.id }}
+        run: mkdir -p .act/jsons && cp "${MATRIX_SERIAL}-${MATRIX_ID}.json" .act/jsons/
+
+      - name: Uploading json artifacts
+        if: env.ACT != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: json-github-legends-${{ matrix.serial }}-${{ matrix.id }}
+          path: ${{ matrix.serial }}-${{ matrix.id }}.json
+
+  merge:
+    name: Merge GitHub Legends
+    needs: convert
+    permissions:
+      contents: read
+    uses: ./.github/workflows/merge-examples.yml
+    with:
+      example_category: github-legends
+
+  publish:
+    name: Publish GitHub Legends examples
+    needs: merge
+    if: >-
+      ${{
+        github.event_name == 'schedule' ||
+        inputs.publish ||
+        (
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main'
+        )
+      }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/publish-site.yml
+    with:
+      artifact_pattern: site-examples-github-legends
+      keep_files: true

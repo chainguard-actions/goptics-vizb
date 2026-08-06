@@ -1,0 +1,72 @@
+name: Test HTML output generation
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create CSV fixture
+        run: |
+          cat > /tmp/html-test-data.csv << 'EOF'
+          name,value
+          ItemA,500
+          ItemB,750
+          ItemC,300
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          file: /tmp/html-test-data.csv
+          name: "HTML Test"
+          output-json: /tmp/html-output.json
+          output-html: /tmp/html-output.html
+          parser: csv
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/html-output.json" ]; then
+            echo "FAIL: expected JSON output file /tmp/html-output.json not found"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert HTML output file exists
+        run: |
+          if [ ! -f "/tmp/html-output.html" ]; then
+            echo "FAIL: expected HTML output file /tmp/html-output.html not found"
+            exit 1
+          fi
+          echo "PASS: HTML output file exists"
+
+      - name: Assert HTML file contains expected content
+        run: |
+          if ! grep -qi "html" /tmp/html-output.html; then
+            echo "FAIL: HTML output does not appear to be valid HTML"
+            exit 1
+          fi
+          echo "PASS: HTML output contains HTML content"
+
+      - name: Assert output-file-html output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/html-output.html" ]; then
+            echo "FAIL: expected output-file-html to be '/tmp/html-output.html', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert output-file-json output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/html-output.json" ]; then
+            echo "FAIL: expected output-file-json to be '/tmp/html-output.json', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

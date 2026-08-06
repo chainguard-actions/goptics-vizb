@@ -1,0 +1,57 @@
+name: Test vizb-binary pre-built binary input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Download vizb binary for pre-built test
+        run: |
+          OS="linux"
+          ARCH="amd64"
+          TAG="v0.17.1"
+          VERSION="${TAG#v}"
+          URL="https://github.com/goptics/vizb/releases/download/${TAG}/vizb@${VERSION}-${OS}-${ARCH}.tar.gz"
+          curl -sfL "$URL" -o /tmp/vizb-archive.tar.gz
+          tar xzf /tmp/vizb-archive.tar.gz -C /tmp
+          chmod +x /tmp/vizb
+          echo "Downloaded vizb binary to /tmp/vizb"
+          /tmp/vizb --version || true
+
+      - name: Create CSV fixture
+        run: |
+          cat > /tmp/binary-test-data.csv << 'EOF'
+          name,value
+          X,10
+          Y,20
+          Z,30
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          vizb-binary: /tmp/vizb
+          file: /tmp/binary-test-data.csv
+          name: "Binary Test"
+          output-json: /tmp/binary-output.json
+          parser: csv
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/binary-output.json" ]; then
+            echo "FAIL: expected JSON output file /tmp/binary-output.json not found"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert JSON output is non-empty
+        run: |
+          SIZE=$(wc -c < /tmp/binary-output.json)
+          echo "JSON file size: $SIZE bytes"
+          if [ "$SIZE" -eq 0 ]; then
+            echo "FAIL: JSON output file is empty"
+            exit 1
+          fi
+          echo "PASS: JSON output is non-empty"

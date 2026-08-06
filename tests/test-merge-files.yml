@@ -1,0 +1,78 @@
+name: Test merge-files input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create first CSV and generate first JSON
+        run: |
+          cat > /tmp/merge-data1.csv << 'EOF'
+          name,value
+          FuncA,100
+          FuncB,200
+          EOF
+
+      - id: first
+        uses: .
+        with:
+          file: /tmp/merge-data1.csv
+          name: "Dataset1"
+          tag: "v1"
+          output-json: /tmp/merge1.json
+          parser: csv
+
+      - name: Create second CSV and generate second JSON
+        run: |
+          cat > /tmp/merge-data2.csv << 'EOF'
+          name,value
+          FuncA,120
+          FuncB,180
+          EOF
+
+      - id: second
+        uses: .
+        with:
+          file: /tmp/merge-data2.csv
+          name: "Dataset2"
+          tag: "v2"
+          output-json: /tmp/merge2.json
+          parser: csv
+
+      - name: Assert both JSON files exist before merge
+        run: |
+          if [ ! -f "/tmp/merge1.json" ]; then
+            echo "FAIL: merge1.json not found"
+            exit 1
+          fi
+          if [ ! -f "/tmp/merge2.json" ]; then
+            echo "FAIL: merge2.json not found"
+            exit 1
+          fi
+          echo "PASS: both source JSON files exist"
+
+      - id: merge-action
+        uses: .
+        with:
+          merge-files: "/tmp/merge1.json /tmp/merge2.json"
+          output-json: /tmp/merged-output.json
+
+      - name: Assert merged JSON output file exists
+        run: |
+          if [ ! -f "/tmp/merged-output.json" ]; then
+            echo "FAIL: expected merged JSON output file /tmp/merged-output.json not found"
+            exit 1
+          fi
+          echo "PASS: merged JSON output file exists"
+
+      - name: Assert merged JSON output is non-empty
+        run: |
+          SIZE=$(wc -c < /tmp/merged-output.json)
+          echo "Merged JSON file size: $SIZE bytes"
+          if [ "$SIZE" -eq 0 ]; then
+            echo "FAIL: merged JSON output file is empty"
+            exit 1
+          fi
+          echo "PASS: merged JSON output is non-empty"

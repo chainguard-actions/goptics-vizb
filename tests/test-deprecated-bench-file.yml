@@ -1,0 +1,43 @@
+name: Test deprecated bench-file input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create CSV fixture for deprecated bench-file
+        run: |
+          cat > /tmp/bench-file-data.csv << 'EOF'
+          name,value
+          OldA,111
+          OldB,222
+          OldC,333
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          bench-file: /tmp/bench-file-data.csv
+          name: "Deprecated bench-file Test"
+          output-json: /tmp/bench-file-output.json
+          parser: csv
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/bench-file-output.json" ]; then
+            echo "FAIL: expected JSON output file /tmp/bench-file-output.json not found"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert JSON output is non-empty
+        run: |
+          SIZE=$(wc -c < /tmp/bench-file-output.json)
+          echo "JSON file size: $SIZE bytes"
+          if [ "$SIZE" -eq 0 ]; then
+            echo "FAIL: JSON output file is empty"
+            exit 1
+          fi
+          echo "PASS: JSON output is non-empty"

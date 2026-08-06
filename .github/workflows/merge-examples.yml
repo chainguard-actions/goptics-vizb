@@ -1,0 +1,57 @@
+name: Merge Examples
+on:
+  workflow_call:
+    inputs:
+      example_category:
+        required: true
+        type: string
+        description: "Example category subdirectory under examples/ (e.g. go, tabular-data, github-legends)"
+
+jobs:
+  merge:
+    name: Merge ${{ inputs.example_category }} examples
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Downloading json artifacts
+        if: env.ACT != 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: json-${{ inputs.example_category }}-*
+          path: /tmp/jsons
+          merge-multiple: true
+
+      - name: Collect local json artifacts
+        if: env.ACT == 'true'
+        run: |
+          mkdir -p /tmp/jsons
+          cp .act/jsons/*.json /tmp/jsons/
+
+      - name: Prepare output directory
+        env:
+          EXAMPLE_CATEGORY: ${{ inputs.example_category }}
+        run: mkdir -p "dist/examples/live/$EXAMPLE_CATEGORY"
+
+      - name: Merging
+        uses: ./
+        with:
+          merge-dir: /tmp/jsons
+          output-html: dist/examples/live/${{ inputs.example_category }}/index.html
+          vizb-binary: ${{ env.ACT == 'true' && './bin/vizb' || '' }}
+
+      - name: Local preview ready
+        if: env.ACT == 'true'
+        env:
+          EXAMPLE_CATEGORY: ${{ inputs.example_category }}
+        run: echo "::notice::Local preview at dist/examples/live/$EXAMPLE_CATEGORY/index.html"
+
+      - name: Upload example site
+        if: env.ACT != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: site-examples-${{ inputs.example_category }}
+          path: dist
+          if-no-files-found: error
