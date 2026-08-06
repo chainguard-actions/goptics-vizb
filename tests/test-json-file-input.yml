@@ -1,0 +1,54 @@
+name: Test JSON file input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create JSON input file
+        run: |
+          cat > /tmp/test-data.json << 'EOF'
+          [
+            {"name": "alpha", "value": 100},
+            {"name": "beta", "value": 200},
+            {"name": "gamma", "value": 150}
+          ]
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          file: /tmp/test-data.json
+          name: "JSON Test Dataset"
+          output-json: /tmp/json-output.json
+          parser: json
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/json-output.json" ]; then
+            echo "FAIL: expected JSON output file /tmp/json-output.json not found"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert JSON output is valid JSON
+        run: |
+          if ! python3 -c "import json, sys; json.load(open('/tmp/json-output.json'))" 2>/dev/null; then
+            echo "FAIL: json-output.json is not valid JSON"
+            cat /tmp/json-output.json || true
+            exit 1
+          fi
+          echo "PASS: JSON output is valid"
+
+      - name: Assert output-file-json output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/json-output.json" ]; then
+            echo "FAIL: expected output-file-json to be '/tmp/json-output.json', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

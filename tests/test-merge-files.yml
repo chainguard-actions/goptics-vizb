@@ -1,0 +1,68 @@
+name: Test merge-files input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create first CSV and convert to JSON
+        run: |
+          cat > /tmp/merge-data-a.csv << 'EOF'
+          name,value
+          alpha,100
+          beta,200
+          EOF
+
+      - name: Install vizb for pre-processing
+        run: |
+          OS="linux"
+          ARCH="amd64"
+          # Determine latest tag from the action's default ref
+          TAG=$(git ls-remote --tags --refs --sort='-version:refname' \
+            https://github.com/goptics/vizb "refs/tags/v0.*" | \
+            head -1 | sed 's|.*/||')
+          if [ -z "$TAG" ]; then
+            TAG="v0.16.0"
+          fi
+          VERSION="${TAG#v}"
+          URL="https://github.com/goptics/vizb/releases/download/${TAG}/vizb@${VERSION}-${OS}-${ARCH}.tar.gz"
+          curl -sfL "$URL" -o /tmp/vizb-archive.tar.gz
+          mkdir -p ~/.local/bin
+          tar xzf /tmp/vizb-archive.tar.gz -C ~/.local/bin
+          chmod +x ~/.local/bin/vizb
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Convert CSV files to JSON for merging
+        run: |
+          vizb /tmp/merge-data-a.csv -o /tmp/merge-a.json -P csv -n "Dataset A"
+          cat > /tmp/merge-data-b.csv << 'EOF'
+          name,value
+          gamma,150
+          delta,300
+          EOF
+          vizb /tmp/merge-data-b.csv -o /tmp/merge-b.json -P csv -n "Dataset B"
+
+      - id: action
+        uses: .
+        with:
+          merge-files: "/tmp/merge-a.json /tmp/merge-b.json"
+          output-json: /tmp/merged-output.json
+
+      - name: Assert merged JSON output file exists
+        run: |
+          if [ ! -f "/tmp/merged-output.json" ]; then
+            echo "FAIL: expected merged JSON output file /tmp/merged-output.json not found"
+            exit 1
+          fi
+          echo "PASS: merged JSON output file exists"
+
+      - name: Assert merged JSON output is valid JSON
+        run: |
+          if ! python3 -c "import json, sys; json.load(open('/tmp/merged-output.json'))" 2>/dev/null; then
+            echo "FAIL: merged-output.json is not valid JSON"
+            cat /tmp/merged-output.json || true
+            exit 1
+          fi
+          echo "PASS: merged JSON output is valid"

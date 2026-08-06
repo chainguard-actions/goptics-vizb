@@ -1,0 +1,62 @@
+name: Test vizb-binary input (pre-built binary)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Download vizb binary manually
+        run: |
+          OS="linux"
+          ARCH="amd64"
+          TAG=$(git ls-remote --tags --refs --sort='-version:refname' \
+            https://github.com/goptics/vizb "refs/tags/v0.*" | \
+            head -1 | sed 's|.*/||')
+          if [ -z "$TAG" ]; then
+            TAG="v0.16.0"
+          fi
+          VERSION="${TAG#v}"
+          URL="https://github.com/goptics/vizb/releases/download/${TAG}/vizb@${VERSION}-${OS}-${ARCH}.tar.gz"
+          curl -sfL "$URL" -o /tmp/vizb-prebuilt.tar.gz
+          mkdir -p /tmp/vizb-bin
+          tar xzf /tmp/vizb-prebuilt.tar.gz -C /tmp/vizb-bin
+          chmod +x /tmp/vizb-bin/vizb
+          echo "Downloaded vizb to /tmp/vizb-bin/vizb"
+          /tmp/vizb-bin/vizb --version || true
+
+      - name: Create CSV input file
+        run: |
+          cat > /tmp/binary-test-data.csv << 'EOF'
+          name,value
+          x,10
+          y,20
+          z,30
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          vizb-binary: /tmp/vizb-bin/vizb
+          file: /tmp/binary-test-data.csv
+          name: "Binary Test"
+          output-json: /tmp/binary-output.json
+          parser: csv
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/binary-output.json" ]; then
+            echo "FAIL: expected JSON output file /tmp/binary-output.json not found"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert JSON output is valid JSON
+        run: |
+          if ! python3 -c "import json, sys; json.load(open('/tmp/binary-output.json'))" 2>/dev/null; then
+            echo "FAIL: binary-output.json is not valid JSON"
+            cat /tmp/binary-output.json || true
+            exit 1
+          fi
+          echo "PASS: JSON output is valid"

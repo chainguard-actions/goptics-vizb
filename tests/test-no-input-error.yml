@@ -1,0 +1,35 @@
+name: Test no input error handling
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Run action without any input (expect failure)
+        id: action
+        uses: .
+        with:
+          name: "No Input Test"
+          output-json: /tmp/no-input-output.json
+        continue-on-error: true
+
+      - name: Assert action failed as expected
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          if [ "$OUTCOME" != "failure" ]; then
+            echo "FAIL: expected action to fail when no input is provided, but got outcome '$OUTCOME'"
+            exit 1
+          fi
+          echo "PASS: action correctly failed when no input was provided"
+
+      - name: Assert no output file was created
+        run: |
+          if [ -f "/tmp/no-input-output.json" ]; then
+            echo "FAIL: output file should not exist when action fails"
+            exit 1
+          fi
+          echo "PASS: no output file created as expected"

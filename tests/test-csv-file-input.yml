@@ -1,0 +1,54 @@
+name: Test CSV file input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create CSV input file
+        run: |
+          cat > /tmp/test-data.csv << 'EOF'
+          name,value
+          alpha,100
+          beta,200
+          gamma,150
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          file: /tmp/test-data.csv
+          name: "Test Dataset"
+          description: "A test CSV dataset"
+          output-json: /tmp/output.json
+          parser: csv
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/output.json" ]; then
+            echo "FAIL: expected JSON output file /tmp/output.json not found"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert JSON output is valid JSON
+        run: |
+          if ! python3 -c "import json, sys; json.load(open('/tmp/output.json'))" 2>/dev/null; then
+            echo "FAIL: output.json is not valid JSON"
+            cat /tmp/output.json || true
+            exit 1
+          fi
+          echo "PASS: JSON output is valid"
+
+      - name: Assert output-file-json output matches
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/output.json" ]; then
+            echo "FAIL: expected output-file-json to be '/tmp/output.json', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

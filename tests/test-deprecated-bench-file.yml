@@ -1,0 +1,53 @@
+name: Test deprecated bench-file input (backward compatibility)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create CSV input file
+        run: |
+          cat > /tmp/bench-compat-data.csv << 'EOF'
+          name,value
+          op_a,500
+          op_b,750
+          op_c,250
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          bench-file: /tmp/bench-compat-data.csv
+          name: "Deprecated bench-file Test"
+          output-json: /tmp/bench-compat-output.json
+          parser: csv
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/bench-compat-output.json" ]; then
+            echo "FAIL: expected JSON output file /tmp/bench-compat-output.json not found"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert JSON output is valid JSON
+        run: |
+          if ! python3 -c "import json, sys; json.load(open('/tmp/bench-compat-output.json'))" 2>/dev/null; then
+            echo "FAIL: bench-compat-output.json is not valid JSON"
+            cat /tmp/bench-compat-output.json || true
+            exit 1
+          fi
+          echo "PASS: JSON output is valid"
+
+      - name: Assert output-file-json output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/bench-compat-output.json" ]; then
+            echo "FAIL: expected output-file-json to be '/tmp/bench-compat-output.json', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
