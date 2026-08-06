@@ -1,0 +1,102 @@
+name: action
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stateless:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Go
+        if: env.ACT != 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # PRs and manual dispatch: rebuild so action tests see current ui/.
+      # workflow_call from main/release: tracked gen is enough.
+      - name: Rebuild embed for PR or dispatch
+        if: env.ACT != 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')
+        uses: ./.github/actions/setup-embed-ui
+
+      - name: Build vizb
+        if: env.ACT != 'true'
+        run: go build -o ./bin/vizb .
+
+      - name: Run action (stateless)
+        id: vizb
+        uses: ./
+        with:
+          file: examples/go/hash.txt
+          output-html: index.html
+          output-json: results/stateless.json
+          vizb-binary: ./bin/vizb
+
+      - name: Verify action outputs
+        env:
+          EXPECTED_JSON_KIND: object
+          EXPECTED_NAMES: '["Comparisons"]'
+          HTML_FILE: ${{ steps.vizb.outputs.output-file-html }}
+          JSON_FILE: ${{ steps.vizb.outputs.output-file-json }}
+        run: node scripts/verify-action-output.mjs
+
+  stateful:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Go
+        if: env.ACT != 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Rebuild embed for PR or dispatch
+        if: env.ACT != 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')
+        uses: ./.github/actions/setup-embed-ui
+
+      - name: Build vizb
+        if: env.ACT != 'true'
+        run: go build -o ./bin/vizb .
+
+      - name: Generate previous JSON
+        uses: ./
+        with:
+          name: Hash
+          file: examples/go/hash.txt
+          output-json: results/prev/hash.json
+          vizb-binary: ./bin/vizb
+
+      - name: Run action (stateful)
+        id: vizb
+        uses: ./
+        with:
+          name: HTTP Frameworks Comparisons
+          group-pattern: x_n
+          sort: asc
+          file: examples/go/http-routing.txt
+          merge-dir: results/prev
+          output-html: index.html
+          output-json: results/bench.json
+          vizb-binary: ./bin/vizb
+
+      - name: Verify action outputs
+        env:
+          EXPECTED_JSON_KIND: array
+          EXPECTED_NAMES: '["Hash", "HTTP Frameworks Comparisons"]'
+          HTML_FILE: ${{ steps.vizb.outputs.output-file-html }}
+          JSON_FILE: ${{ steps.vizb.outputs.output-file-json }}
+        run: node scripts/verify-action-output.mjs

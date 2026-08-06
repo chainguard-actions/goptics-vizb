@@ -1,0 +1,56 @@
+name: Test CSV file input to HTML output
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          file: ${{ github.workspace }}/tests/fixtures/data.csv
+          name: "HTML Test"
+          parser: csv
+          output-json: ${{ runner.temp }}/html-test.json
+          output-html: ${{ runner.temp }}/html-test.html
+
+      - name: Assert output-file-html output
+        env:
+          OUT_HTML: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "output-file-html: $OUT_HTML"
+          if [ -z "$OUT_HTML" ]; then
+            echo "FAIL: output-file-html is empty"
+            exit 1
+          fi
+          echo "PASS: output-file-html = $OUT_HTML"
+
+      - name: Assert HTML file exists and contains HTML content
+        env:
+          OUT_HTML: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "Checking file: $OUT_HTML"
+          if [ ! -f "$OUT_HTML" ]; then
+            echo "FAIL: HTML output file does not exist at $OUT_HTML"
+            exit 1
+          fi
+          echo "File size: $(wc -c < "$OUT_HTML") bytes"
+          # Check it looks like HTML
+          if ! grep -qi '<html' "$OUT_HTML"; then
+            echo "FAIL: output file does not appear to be HTML"
+            exit 1
+          fi
+          echo "PASS: HTML file exists and contains HTML content"
+
+      - name: Assert JSON file also exists
+        env:
+          OUT_JSON: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "Checking JSON file: $OUT_JSON"
+          if [ ! -f "$OUT_JSON" ]; then
+            echo "FAIL: JSON output file does not exist at $OUT_JSON"
+            exit 1
+          fi
+          echo "PASS: JSON file also exists"

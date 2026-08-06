@@ -1,0 +1,44 @@
+name: Test JSON file input to JSON output
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          file: ${{ github.workspace }}/tests/fixtures/data.json
+          name: "JSON Input Test"
+          parser: json
+          output-json: ${{ runner.temp }}/json-output.json
+
+      - name: Assert output-file-json output
+        env:
+          OUT_JSON: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "output-file-json: $OUT_JSON"
+          if [ -z "$OUT_JSON" ]; then
+            echo "FAIL: output-file-json is empty"
+            exit 1
+          fi
+          echo "PASS: output-file-json = $OUT_JSON"
+
+      - name: Assert JSON file exists and is valid JSON
+        env:
+          OUT_JSON: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "Checking file: $OUT_JSON"
+          if [ ! -f "$OUT_JSON" ]; then
+            echo "FAIL: JSON output file does not exist at $OUT_JSON"
+            exit 1
+          fi
+          echo "File contents:"
+          cat "$OUT_JSON"
+          if ! python3 -c "import sys, json; json.load(open('$OUT_JSON'))" 2>/dev/null; then
+            echo "FAIL: output file is not valid JSON"
+            exit 1
+          fi
+          echo "PASS: JSON input file processed correctly"
