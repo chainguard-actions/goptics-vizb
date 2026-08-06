@@ -1,0 +1,57 @@
+name: Test cmd input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create a script that emits CSV data
+        run: |
+          cat > /tmp/emit-csv.sh << 'EOF'
+          #!/bin/sh
+          echo "name,score"
+          echo "Alice,95"
+          echo "Bob,87"
+          echo "Carol,92"
+          EOF
+          chmod +x /tmp/emit-csv.sh
+
+      - id: action
+        uses: .
+        with:
+          cmd: "bash /tmp/emit-csv.sh"
+          name: "Score Comparison"
+          parser: csv
+          output-json: /tmp/cmd-output.json
+
+      - name: Assert JSON output file exists
+        run: |
+          echo "Checking output file..."
+          if [ ! -f "/tmp/cmd-output.json" ]; then
+            echo "FAIL: output JSON file not found at /tmp/cmd-output.json"
+            exit 1
+          fi
+          echo "PASS: output JSON file exists"
+
+      - name: Assert JSON output is non-empty
+        run: |
+          SIZE=$(wc -c < /tmp/cmd-output.json)
+          echo "JSON file size: $SIZE bytes"
+          if [ "$SIZE" -lt 10 ]; then
+            echo "FAIL: output JSON file is too small (likely empty)"
+            exit 1
+          fi
+          echo "PASS: output JSON file has content"
+
+      - name: Assert output-file-json output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual output-file-json: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/cmd-output.json" ]; then
+            echo "FAIL: expected output-file-json to be '/tmp/cmd-output.json', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

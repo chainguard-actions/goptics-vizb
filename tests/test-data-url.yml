@@ -1,0 +1,43 @@
+name: Test data-url input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # When data-url is provided without cmd/file, the action sets has_input=false
+      # and skips the Convert to JSON step, going directly to Generate HTML.
+      - id: action
+        uses: .
+        with:
+          data-url: "https://example.com/vizb-data.json"
+          output-html: /tmp/data-url-output.html
+
+      - name: Assert HTML output file exists
+        run: |
+          if [ ! -f "/tmp/data-url-output.html" ]; then
+            echo "FAIL: output HTML file not found at /tmp/data-url-output.html"
+            exit 1
+          fi
+          echo "PASS: HTML output exists"
+
+      - name: Assert HTML file contains expected content
+        run: |
+          if ! grep -qi "html" /tmp/data-url-output.html; then
+            echo "FAIL: HTML file does not appear to contain HTML content"
+            exit 1
+          fi
+          echo "PASS: HTML file contains HTML content"
+
+      - name: Assert output-file-html output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "actual output-file-html: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/data-url-output.html" ]; then
+            echo "FAIL: expected output-file-html to be '/tmp/data-url-output.html', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

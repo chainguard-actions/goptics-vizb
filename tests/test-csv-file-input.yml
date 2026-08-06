@@ -1,0 +1,55 @@
+name: Test CSV file input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create CSV input file
+        run: |
+          cat > /tmp/test-data.csv << 'EOF'
+          name,value
+          alpha,100
+          beta,200
+          gamma,150
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          file: /tmp/test-data.csv
+          name: "Test Dataset"
+          parser: csv
+          output-json: /tmp/output.json
+
+      - name: Assert JSON output file exists
+        run: |
+          echo "Checking output file..."
+          if [ ! -f "/tmp/output.json" ]; then
+            echo "FAIL: output JSON file not found at /tmp/output.json"
+            exit 1
+          fi
+          echo "PASS: output JSON file exists"
+
+      - name: Assert JSON output is non-empty
+        run: |
+          SIZE=$(wc -c < /tmp/output.json)
+          echo "JSON file size: $SIZE bytes"
+          if [ "$SIZE" -lt 10 ]; then
+            echo "FAIL: output JSON file is too small (likely empty)"
+            exit 1
+          fi
+          echo "PASS: output JSON file has content"
+
+      - name: Assert output-file-json output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual output-file-json: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/output.json" ]; then
+            echo "FAIL: expected output-file-json to be '/tmp/output.json', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

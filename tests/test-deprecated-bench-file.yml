@@ -1,0 +1,44 @@
+name: Test deprecated bench-file input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create CSV input file
+        run: |
+          cat > /tmp/bench-compat.csv << 'EOF'
+          name,ops
+          fast,1000
+          medium,500
+          slow,100
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          bench-file: /tmp/bench-compat.csv
+          name: "Bench Compat Test"
+          parser: csv
+          output-json: /tmp/bench-compat-output.json
+
+      - name: Assert JSON output file exists
+        run: |
+          echo "Checking output file..."
+          if [ ! -f "/tmp/bench-compat-output.json" ]; then
+            echo "FAIL: output JSON file not found at /tmp/bench-compat-output.json"
+            exit 1
+          fi
+          echo "PASS: output JSON file exists (bench-file input honored)"
+
+      - name: Assert JSON output is non-empty
+        run: |
+          SIZE=$(wc -c < /tmp/bench-compat-output.json)
+          echo "JSON file size: $SIZE bytes"
+          if [ "$SIZE" -lt 10 ]; then
+            echo "FAIL: output JSON file is too small (likely empty)"
+            exit 1
+          fi
+          echo "PASS: output JSON file has content"

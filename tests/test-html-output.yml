@@ -1,0 +1,73 @@
+name: Test HTML output generation
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create CSV input file
+        run: |
+          cat > /tmp/perf-data.csv << 'EOF'
+          name,latency
+          service-a,12
+          service-b,34
+          service-c,8
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          file: /tmp/perf-data.csv
+          name: "Latency Comparison"
+          description: "Service latency in ms"
+          parser: csv
+          output-json: /tmp/perf.json
+          output-html: /tmp/perf.html
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/perf.json" ]; then
+            echo "FAIL: output JSON file not found at /tmp/perf.json"
+            exit 1
+          fi
+          echo "PASS: JSON output exists"
+
+      - name: Assert HTML output file exists
+        run: |
+          if [ ! -f "/tmp/perf.html" ]; then
+            echo "FAIL: output HTML file not found at /tmp/perf.html"
+            exit 1
+          fi
+          echo "PASS: HTML output exists"
+
+      - name: Assert HTML file contains expected content
+        run: |
+          if ! grep -qi "html" /tmp/perf.html; then
+            echo "FAIL: HTML file does not appear to contain HTML content"
+            exit 1
+          fi
+          echo "PASS: HTML file contains HTML content"
+
+      - name: Assert output-file-html output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "actual output-file-html: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/perf.html" ]; then
+            echo "FAIL: expected output-file-html to be '/tmp/perf.html', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert output-file-json output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual output-file-json: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/perf.json" ]; then
+            echo "FAIL: expected output-file-json to be '/tmp/perf.json', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

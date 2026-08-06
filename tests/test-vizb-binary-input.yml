@@ -1,0 +1,58 @@
+name: Test vizb-binary input (pre-built binary)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Download vizb binary for use as pre-built binary
+        run: |
+          OS="linux"
+          ARCH="amd64"
+          TAG="v0.18.1"
+          VERSION="${TAG#v}"
+          URL="https://github.com/goptics/vizb/releases/download/${TAG}/vizb@${VERSION}-${OS}-${ARCH}.tar.gz"
+          curl -sfL "$URL" -o /tmp/vizb-archive.tar.gz
+          mkdir -p /tmp/vizb-prebuilt
+          tar xzf /tmp/vizb-archive.tar.gz -C /tmp/vizb-prebuilt
+          chmod +x /tmp/vizb-prebuilt/vizb
+          echo "Pre-built vizb binary ready at /tmp/vizb-prebuilt/vizb"
+          /tmp/vizb-prebuilt/vizb --version || true
+
+      - name: Create CSV input file
+        run: |
+          cat > /tmp/prebuilt-test.csv << 'EOF'
+          name,requests
+          endpoint-a,500
+          endpoint-b,300
+          endpoint-c,700
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          vizb-binary: /tmp/vizb-prebuilt/vizb
+          file: /tmp/prebuilt-test.csv
+          name: "Pre-built Binary Test"
+          parser: csv
+          output-json: /tmp/prebuilt-output.json
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/prebuilt-output.json" ]; then
+            echo "FAIL: output JSON file not found at /tmp/prebuilt-output.json"
+            exit 1
+          fi
+          echo "PASS: output JSON file exists when using pre-built binary"
+
+      - name: Assert JSON output is non-empty
+        run: |
+          SIZE=$(wc -c < /tmp/prebuilt-output.json)
+          echo "JSON file size: $SIZE bytes"
+          if [ "$SIZE" -lt 10 ]; then
+            echo "FAIL: output JSON file is too small (likely empty)"
+            exit 1
+          fi
+          echo "PASS: output JSON file has content"

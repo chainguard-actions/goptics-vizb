@@ -1,0 +1,104 @@
+name: "Examples: Rust"
+on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/rust/**"
+      - "action.yml"
+      - ".github/workflows/merge-examples.yml"
+      - ".github/workflows/rust-examples.yml"
+  workflow_call:
+    inputs:
+      publish:
+        required: false
+        type: boolean
+        default: false
+        description: "Publish after merge (default false; set true to publish immediately)"
+  workflow_dispatch:
+    inputs:
+      publish:
+        required: false
+        type: boolean
+        default: true
+        description: "Publish after merge (default true; set false to prepare-only)"
+
+permissions:
+  contents: read
+
+jobs:
+  convert:
+    name: Convert Rust Benchmarks
+    strategy:
+      matrix:
+        include:
+          - id: 00-criterion
+            file: criterion
+            name: "Bubble vs Insertion Sort (Criterion)"
+            description: "Criterion.rs output — algorithm on X, input size on Y"
+            group-regex: "(?<x>.*)/n=(?<y>.*)"
+
+          - id: 01-divan
+            file: divan
+            name: "Bubble vs Insertion Sort (Divan)"
+            description: "Divan output — algorithm and input size from group pattern"
+            group-pattern: x__y
+
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: ${{ matrix.name }}
+        uses: ./
+        with:
+          file: examples/rust/${{ matrix.file }}.txt
+          id: ${{ matrix.id }}
+          name: ${{ matrix.name }}
+          description: ${{ matrix.description }}
+          group-pattern: ${{ matrix.group-pattern }}
+          group-regex: ${{ matrix.group-regex }}
+          chart: |
+            bar:scale=log,sort=asc
+            line:scale=log,sort=asc
+            pie:sort=asc
+          output-json: ${{ matrix.id }}.json
+          vizb-binary: ${{ env.ACT == 'true' && './bin/vizb' || '' }}
+
+      - name: Stage json for local merge
+        if: env.ACT == 'true'
+        env:
+          MATRIX_ID: ${{ matrix.id }}
+        run: mkdir -p .act/jsons && cp "$MATRIX_ID".json .act/jsons/
+
+      - name: Uploading json artifacts
+        if: env.ACT != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: json-rust-${{ matrix.id }}
+          path: ${{ matrix.id }}.json
+
+  merge:
+    name: Merge Rust Benchmarks
+    needs: convert
+    permissions:
+      contents: read
+    uses: ./.github/workflows/merge-examples.yml
+    with:
+      example_category: rust
+
+  publish:
+    name: Publish Rust examples
+    needs: merge
+    if: >-
+      ${{
+        inputs.publish ||
+        (
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main'
+        )
+      }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/publish-site.yml
+    with:
+      artifact_pattern: site-examples-rust
+      keep_files: true
