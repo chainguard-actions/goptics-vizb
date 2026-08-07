@@ -1,0 +1,8 @@
+pre-commit:
+  commands:
+    format:
+      run: task format
+      stage_fixed: true
+    go-test:
+      glob: "*.go"
+      run: task test

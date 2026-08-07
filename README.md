@@ -1,23 +1,114 @@
-# goptics/vizb
+<div align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./assets/logo-dark.gif">
+  
+  <source media="(prefers-color-scheme: light)" srcset="./assets/logo-light.gif">
+  
+  <img alt="Vizb" width="100px" src="./assets/logo-light.gif">
+</picture>
 
-Run Go benchmarks and generate interactive HTML visualizations with vizb
+  <h1>Vizb</h1>
 
-Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at [https://github.com/goptics/vizb](https://github.com/goptics/vizb).
+  <p>
+    <a href="https://github.com/avelino/awesome-go?tab=readme-ov-file#benchmarks"><img src="https://awesome.re/mentioned-badge-flat.svg" alt="Mentioned in Awesome Go" /></a>
+    <a href="https://vizb.goptics.org"><img src="https://img.shields.io/badge/Docs-00ADD8?style=for&logo=readthedocs" alt="Docs" /></a>
+    <a href="https://vizb.goptics.org/examples"><img src="https://img.shields.io/badge/Live-Examples-orange?style=for" alt="Examples" /></a>
+    <a href="https://github.com/goptics/vizb/actions/workflows/cli.yml"><img src="https://github.com/goptics/vizb/actions/workflows/cli.yml/badge.svg" alt="CLI" /></a>
+    <a href="https://github.com/goptics/vizb/actions/workflows/ui.yml"><img src="https://github.com/goptics/vizb/actions/workflows/ui.yml/badge.svg" alt="UI" /></a>
+    <a href="https://github.com/goptics/vizb/actions/workflows/release.yml"><img src="https://github.com/goptics/vizb/actions/workflows/release.yml/badge.svg" alt="Release" /></a>
+    <a href="https://codecov.io/gh/goptics/vizb"><img src="https://codecov.io/gh/goptics/vizb/branch/main/graph/badge.svg" alt="Codecov" /></a>
+    <a href="https://github.com/goptics/vizb/releases"><img src="https://img.shields.io/github/downloads/goptics/vizb/total?color=green&label=downloads" alt="Downloads" /></a>
+    <a href="https://golang.org/doc/devel/release.html"><img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=for&logo=go" alt="Go Version" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=for" alt="License" /></a>
+  </p>
 
-## Versions
+  <p>
+    A tabular visualization engine for <strong>CSV, JSON, and benchmark output</strong>. Turns numeric columns into interactive charts and descriptive statistics in one self-contained HTML file - no server, no dependencies, no build step.
+  </p>
 
-| Version | Tag | Upstream commit |
-|---------|-----|-----------------|
-| v0.10.1 | [`v0.10.1`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.10.1) | [`d8d7d67`](https://github.com/goptics/vizb/commit/d8d7d676b2a8b19e9831b0f8f6ce3fa95b5fcee6) |
-| v0.14.0 | [`v0.14.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.14.0) | [`f351f8a`](https://github.com/goptics/vizb/commit/f351f8a4adc849122c561f1f3b494572bed625ef) |
-| v0.14.1 | [`v0.14.1`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.14.1) | [`e51d56b`](https://github.com/goptics/vizb/commit/e51d56b2b618e5f13c434a5267cbea90fc7dca9a) |
-| v0.15.0 | [`v0.15.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.15.0) | [`55c2bc7`](https://github.com/goptics/vizb/commit/55c2bc716a095c838c30b66ce97d651a4872d3e7) |
-| v0.16.0 | [`v0.16.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.16.0) | [`e4f0902`](https://github.com/goptics/vizb/commit/e4f09028b52f02c0eb3be815bdba718f783c7fa7) |
-| v0.17.0 | [`v0.17.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.17.0) | [`ae04a22`](https://github.com/goptics/vizb/commit/ae04a22c1afe3182a8b5de484d7cd8b92436c8d3) |
-| v0.17.1 | [`v0.17.1`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.17.1) | [`a023fb0`](https://github.com/goptics/vizb/commit/a023fb04f00f3d7083e223cbe8261ea7f9660caa) |
-| v0.18.0 | [`v0.18.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.18.0) | [`56a8c53`](https://github.com/goptics/vizb/commit/56a8c539b29b7214c5e9fa53e2275b7484ec40d5) |
-| v0.18.1 | [`v0.18.1`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.18.1) | [`86a3217`](https://github.com/goptics/vizb/commit/86a321782ad580be6bcbc9da8ddd2c2e24f0df65) |
-| v0.18.2 | [`v0.18.2`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.18.2) | [`6ebc4fb`](https://github.com/goptics/vizb/commit/6ebc4fb33c6c28f43d27652b7e9aa6ec93c3a240) |
+  <p>
+    <a href="https://vizb.goptics.org/getting-started/">Getting Started</a> ·
+    <a href="https://vizb.goptics.org/commands/root/">Commands</a> ·
+    <a href="https://vizb.goptics.org/charts/">Charts</a> ·
+    <a href="https://vizb.goptics.org/guides/parsers/">Parsers</a> ·
+    <a href="https://vizb.goptics.org/guides/group/">Grouping</a> ·
+    <a href="https://vizb.goptics.org/guides/select/">Select</a> ·
+    <a href="https://vizb.goptics.org/guides/merging/">Merging</a> ·
+    <a href="https://vizb.goptics.org/ci-cd/github-action/">CI/CD</a>
+    <br />
+    <sub>Full documentation at <a href="https://vizb.goptics.org/"><strong>vizb.goptics.org</strong></a></sub>
+  </p>
+</div>
+
+
+## Quick Install
+
+### Linux / macOS
+
+```bash
+curl -fsSL https://vizb.goptics.org/install.sh | bash
+```
+
+### Windows
+
+```powershell
+irm https://vizb.goptics.org/install.ps1 | iex
+```
+
+### Download Binary
+
+Pre-built binaries for Linux, macOS, and Windows are available on the [releases page](https://github.com/goptics/vizb/releases).
+
+## Quick Example
+
+Run one command to turn your GitHub contribution history into a 3D skyline of your activity over time. Each year stacks as a new layer; within it, every day is a column whose height is your contribution count. Replace `<your-github-username>` with your GitHub username and open the generated `index.html`.
+
+![torvalds contribution history](./assets/torvalds-contribution-history.gif)
+
+Example: [torvalds](https://github.com/torvalds) contribution history
+
+#### Linux / macOS
+
+```bash
+curl -s "https://github-contributions-api.jogruber.de/v4/<your-github-username>" \
+  | vizb bar \
+      --group date \
+      --group-pattern '[z{Year}-y{Month}-x{Date}]' \
+      --json-path '.contributions' \
+      --select 'count{Contributions}' \
+      --stat \
+      --output index.html
+```
+
+#### Windows
+
+```powershell
+(iwr "https://github-contributions-api.jogruber.de/v4/<your-github-username>").Content `
+  | vizb bar `
+      --group date `
+      --group-pattern '[z{Year}-y{Month}-x{Date}]' `
+      --json-path '.contributions' `
+      --select 'count{Contributions}' `
+      --stat `
+      --output index.html
+```
+
+Flags used:
+
+- `--group date` - group rows by date
+- `--group-pattern '[z{Year}-y{Month}-x{Date}]'` - split each date into Year / Month / Day axes (z / y / x)
+- `--json-path '.contributions'` - pull the nested contributions array out of the API envelope
+- `--select 'count{Contributions}'` - keep only the count column and rename it to `Contributions`
+- `--stat` - add the statistics panel
+- `--output index.html` - write a self-contained HTML file
+
+## Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, build/test commands, and how to add a parser.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Privacy
 

@@ -1,0 +1,32 @@
+name: Test deprecated bench-cmd alias
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          bench-cmd: "printf 'product,revenue\\nWidget,500\\nGadget,750\\nDoohickey,300'"
+          name: "Revenue Report"
+          output-json: "/tmp/deprecated-test.json"
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/deprecated-test.json" ]; then
+            echo "FAIL: expected JSON output file not found at /tmp/deprecated-test.json"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert JSON output is valid JSON
+        run: |
+          if ! python3 -c "import json,sys; json.load(open('/tmp/deprecated-test.json'))" 2>/dev/null; then
+            echo "FAIL: output is not valid JSON"
+            cat /tmp/deprecated-test.json || true
+            exit 1
+          fi
+          echo "PASS: output is valid JSON"

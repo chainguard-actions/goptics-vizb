@@ -1,0 +1,100 @@
+name: "Examples: GitHub Legends"
+on:
+  push:
+    branches: [main]
+    paths:
+      - "action.yml"
+      - ".github/workflows/merge-examples.yml"
+      - ".github/workflows/github-legends.yml"
+  schedule:
+    # Refresh contribution skylines every Friday (data is live from the API).
+    - cron: '0 12 * * 5'
+  workflow_call:
+    inputs:
+      publish:
+        required: false
+        type: boolean
+        default: true
+        description: "Publish the generated GitHub Legends examples immediately"
+  workflow_dispatch:
+    inputs:
+      publish:
+        required: false
+        type: boolean
+        default: true
+        description: "Publish the generated GitHub Legends examples immediately"
+
+permissions: {}
+
+jobs:
+  convert:
+    name: Convert GitHub Legends
+    strategy:
+      matrix:
+        include:
+          - id: 00-torvalds
+            user: torvalds
+
+          - id: 01-sindresorhus
+            user: sindresorhus
+
+          - id: 02-yyx990803
+            user: yyx990803
+
+          - id: 03-gaearon
+            user: gaearon
+
+          - id: 04-isaacs
+            user: isaacs
+
+          - id: 05-antirez
+            user: antirez
+
+          - id: 06-gvanrossum
+            user: gvanrossum
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: ${{ matrix.user }}
+        uses: ./
+        with:
+          cmd: curl -sfL "https://github-contributions-api.jogruber.de/v4/${{ matrix.user }}"
+          id: ${{ matrix.id }}
+          name: ${{ matrix.user }}
+          description: "3D GitHub contribution skyline from jogruber API of the top OSS contributors"
+          group: date
+          group-pattern: "[z{Year}-y{Month}-x{Date}]"
+          json-path: ".contributions"
+          select: "count{Contributions}"
+          stat: all
+          charts: bar
+          output-json: ${{ matrix.id }}.json
+          vizb-binary: ${{ env.ACT == 'true' && './bin/vizb' || '' }}
+
+      - name: Stage json for local merge
+        if: env.ACT == 'true'
+        env:
+          MATRIX_ID: ${{ matrix.id }}
+        run: mkdir -p .act/jsons && cp "${MATRIX_ID}.json" .act/jsons/
+
+      - name: Uploading json artifacts
+        if: env.ACT != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: json-github-legends-${{ matrix.id }}
+          path: ${{ matrix.id }}.json
+
+  merge:
+    name: Merge GitHub Legends
+    needs: convert
+    permissions:
+      contents: write
+    uses: ./.github/workflows/merge-examples.yml
+    with:
+      example_category: github-legends
+      # Schedule always publishes; call/dispatch/push use a boolean (empty input → false).
+      publish: ${{ github.event_name != 'workflow_dispatch' || inputs.publish == true }}
