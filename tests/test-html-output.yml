@@ -1,0 +1,65 @@
+name: Test HTML output generation
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          cmd: "printf 'name,value\\nfoo,10\\nbar,20\\nbaz,30\\n'"
+          parser: csv
+          name: "HTML Test"
+          charts: "bar,line,pie"
+          output-json: "/tmp/html-test.json"
+          output-html: "/tmp/html-test.html"
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/html-test.json" ]; then
+            echo "FAIL: JSON output file not found"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert HTML output file exists
+        run: |
+          if [ ! -f "/tmp/html-test.html" ]; then
+            echo "FAIL: HTML output file not found at /tmp/html-test.html"
+            exit 1
+          fi
+          echo "PASS: HTML output file exists"
+
+      - name: Assert HTML file contains expected content
+        run: |
+          if ! grep -qi "html" /tmp/html-test.html; then
+            echo "FAIL: HTML file does not appear to contain HTML content"
+            head -5 /tmp/html-test.html
+            exit 1
+          fi
+          echo "PASS: HTML file contains HTML content"
+
+      - name: Assert output-file-html output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/html-test.html" ]; then
+            echo "FAIL: expected '/tmp/html-test.html' but got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert output-file-json output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/html-test.json" ]; then
+            echo "FAIL: expected '/tmp/html-test.json' but got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

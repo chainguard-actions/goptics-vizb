@@ -1,0 +1,71 @@
+---
+title: Features
+description: A detailed overview of everything vizb can do.
+---
+
+import { CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+Vizb is a tabular visualization engine for CSV, JSON, and benchmark output. A benchmark row is just a named, numeric table row — everything below works the same way for tables and benchmarks.
+
+<CardGrid stagger>
+  <Card title="Any CSV or JSON" icon="seti:csv">
+    Chart any table directly. Numeric columns and fields become series. Promote other columns to the Name / X / Y / Z axes with `--group`. See the [Tabular Data guide](/guides/data).
+  </Card>
+  <Card title="Modern Interactive UI" icon="laptop">
+    Vue.js application embedded in a single HTML file. Sort, zoom, swap axes, fullscreen, and export. All in the browser with no server.
+  </Card>
+  <Card title="Multi-Chart" icon="analytics">
+    Bar, line, scatter, pie, heatmap, and radar charts rendered together. Choose which to show with `--charts` or toggle in the UI.
+  </Card>
+  <Card title="3D Charts" icon="cube">
+    Add a z-axis to render interactive 3D stacked-bar and 3D line charts. Rotate, zoom, and auto-rotate the scene. See [3D Charts](/charts/3d).
+  </Card>
+  <Card title="Statistics Panel" icon="approve-check">
+    Per-series descriptive stats (33 metrics, sortable, searchable, CSV export) plus a four-method correlation matrix (Pearson, Spearman, Kendall, distance correlation). Computed off-thread. See [Statistics](/ui/stats).
+  </Card>
+  <Card title="Multi-Dimensional Grouping" icon="puzzle">
+    Extract Name, XAxis, YAxis, and ZAxis from row labels or column values using pattern matching or regex. Handle 1D, 2D, 3D, or 4D data.
+  </Card>
+  <Card title="Axis Swapping" icon="random">
+    Rearrange Name, X-axis, Y-axis, and Z-axis dimensions in the UI for different perspectives on the same data.
+  </Card>
+  <Card title="Tag-Based Merging" icon="code-branch">
+    Tag datasets with version labels. Deep-merge across releases with chronological data ordering.
+  </Card>
+  <Card title="Sorting" icon="list-format">
+    Rank series by value so the largest, smallest, or fastest appear first. Configure with `--sort` or toggle in the UI.
+  </Card>
+  <Card title="Logarithmic Scale" icon="puzzle">
+    Use `--scale log` for 2D bar and line charts when your data spans several orders of magnitude.
+  </Card>
+  <Card title="Large-Data Zoom" icon="magnifier">
+    A dataZoom slider for wide X-axes and an optimized render path for big datasets keep the UI responsive on thousands of points.
+  </Card>
+  <Card title="Axis-Sum Tooltips" icon="information">
+    Hover any point for marginal sums. 2D charts show per-series and x totals. 3D charts show Σ z / Σ x / Σ y. Values recompute live as you toggle the legend.
+  </Card>
+  <Card title="Flexible Input" icon="document">
+    Reads CSV and JSON tables. Also reads benchmark output from Go, Rust (Criterion, Divan), and JavaScript (Vitest, Tinybench). Accepts a file path or an stdin pipe.
+  </Card>
+  <Card title="Automatic Parser Detection" icon="magnifier">
+    `--parser` defaults to `auto`. Vizb inspects the input content and picks the right parser. It prints its choice. Override anytime with `-P`.
+  </Card>
+  <Card title="Comprehensive Metrics" icon="information">
+    Time (ns/us/ms/s), memory (B/KB/MB/GB), allocations, throughput, and latency percentiles. Units are configurable. Which metrics appear depends on the parser used.
+  </Card>
+  <Card title="Smart Filtering" icon="magnifier">
+    Regex to include only matching rows (CSV/JSON: `--group` label) or benchmark names.
+  </Card>
+  <Card title="Export Options" icon="download">
+    Single-file HTML or JSON output. Export charts as JPEG from the UI.
+  </Card>
+  <Card title="GitHub Action" icon="server">
+    First-class CI integration. Run benchmarks, tag releases, merge history, and deploy from GitHub Actions.
+  </Card>
+</CardGrid>
+
+## Learn More
+
+<Aside type="tip">
+  Each feature is documented in detail — follow the guides in the sidebar.
+</Aside>

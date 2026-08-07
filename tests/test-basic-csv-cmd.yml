@@ -1,0 +1,45 @@
+name: Test basic CSV via cmd
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          cmd: "printf 'name,value\\nalpha,100\\nbeta,200\\ngamma,150\\n'"
+          parser: csv
+          name: "Test Dataset"
+          charts: "bar,line"
+          output-json: "/tmp/test-output.json"
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/test-output.json" ]; then
+            echo "FAIL: JSON output file not found at /tmp/test-output.json"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert JSON output is valid JSON
+        run: |
+          if ! python3 -m json.tool /tmp/test-output.json > /dev/null 2>&1; then
+            echo "FAIL: output is not valid JSON"
+            cat /tmp/test-output.json
+            exit 1
+          fi
+          echo "PASS: output is valid JSON"
+
+      - name: Assert output-file-json output matches input
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/test-output.json" ]; then
+            echo "FAIL: expected '/tmp/test-output.json' but got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

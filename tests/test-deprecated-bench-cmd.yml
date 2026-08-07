@@ -1,0 +1,47 @@
+name: Test deprecated bench-cmd input (backward compatibility)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          bench-cmd: "printf 'name,value\\nfoo,100\\nbar,200\\nbaz,150\\n'"
+          parser: csv
+          name: "Legacy Benchmark"
+          tag: "v1.0"
+          charts: "bar"
+          output-json: "/tmp/legacy-output.json"
+
+      - name: Assert JSON output file exists
+        run: |
+          echo "Checking for JSON output at /tmp/legacy-output.json"
+          if [ ! -f "/tmp/legacy-output.json" ]; then
+            echo "FAIL: JSON output file not found"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert JSON output is valid JSON
+        run: |
+          echo "Validating JSON content"
+          if ! python3 -c "import json, sys; json.load(open('/tmp/legacy-output.json'))" 2>&1; then
+            echo "FAIL: output is not valid JSON"
+            exit 1
+          fi
+          echo "PASS: output is valid JSON"
+
+      - name: Assert output-file-json action output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/legacy-output.json" ]; then
+            echo "FAIL: expected output-file-json to be '/tmp/legacy-output.json', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

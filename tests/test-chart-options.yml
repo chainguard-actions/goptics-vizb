@@ -1,0 +1,48 @@
+name: Test chart options and filter
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          cmd: "printf 'name,value\\napple,50\\nbanana,80\\ncherry,30\\ndate,90\\n'"
+          parser: csv
+          name: "Chart Options Test"
+          description: "Testing chart customization"
+          tag: "v1.0"
+          charts: "bar,scatter"
+          filter: "apple|banana"
+          output-json: "/tmp/chart-options-output.json"
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/chart-options-output.json" ]; then
+            echo "FAIL: JSON output file not found at /tmp/chart-options-output.json"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert JSON output is valid JSON
+        run: |
+          if ! python3 -m json.tool /tmp/chart-options-output.json > /dev/null 2>&1; then
+            echo "FAIL: output is not valid JSON"
+            cat /tmp/chart-options-output.json
+            exit 1
+          fi
+          echo "PASS: output is valid JSON"
+
+      - name: Assert output-file-json output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/chart-options-output.json" ]; then
+            echo "FAIL: expected '/tmp/chart-options-output.json' but got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

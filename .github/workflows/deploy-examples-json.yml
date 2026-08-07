@@ -1,0 +1,75 @@
+name: deploy-json-examples
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/deploy-examples-json.yml
+      - action.yml
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  convert:
+    name: Convert JSON Data
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - output: 00-torvalds
+            user: torvalds
+
+          - output: 01-sindresorhus
+            user: sindresorhus
+
+          - output: 02-yyx990803
+            user: yyx990803
+
+          - output: 03-gaearon
+            user: gaearon
+
+          - output: 04-isaacs
+            user: isaacs
+
+          - output: 05-antirez
+            user: antirez
+
+          - output: 06-gvanrossum
+            user: gvanrossum
+
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: ${{ matrix.user }}
+        uses: ./
+        with:
+          cmd: curl -sfL "https://github-contributions-api.jogruber.de/v4/${{ matrix.user }}"
+          name: ${{ matrix.user }}
+          description: "3D GitHub contribution skyline from jogruber API of the top OSS contributors"
+          group: date
+          group-pattern: "[z{Year}-y{Month}-x{Date}]"
+          json-path: ".contributions"
+          select: "count{Contributions}"
+          stat: all
+          charts: bar
+          output-json: ${{ matrix.output }}.json
+
+      - name: Uploading json artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: json-${{ matrix.output }}
+          path: ${{ matrix.output }}.json
+
+  merge-deploy:
+    name: Merge and Deploy JSON Data
+    needs: convert
+    permissions:
+      contents: write
+    uses: ./.github/workflows/merge-deploy-examples.yml
+    with:
+      language: json

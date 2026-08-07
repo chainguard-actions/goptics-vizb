@@ -1,0 +1,103 @@
+name: deploy-csv-examples
+on:
+  push:
+    branches: [main]
+    paths:
+      - examples/csv/**
+      - action.yml
+      - .github/workflows/deploy-examples-csv.yml
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  convert:
+    name: Convert CSV Data
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - output: 00-sales-auto-group
+            file: sales
+            name: "Sales Auto-Group"
+            description: "Auto-grouped bar chart — vizb picks order_date as the X axis (highest-cardinality categorical column)"
+            charts: bar
+
+          - output: 01-sales-grouped
+            file: sales
+            name: "Sales by Product"
+            description: "Grouped 3D bar chart by product, region, and category"
+            group: "product,region,category"
+            group-pattern: n,x,y
+            charts: bar
+            chart: "bar:3d"
+
+          - output: 02-sales-by-date
+            file: sales
+            name: "Sales by Date"
+            description: "Monthly sales by category with year/month/date axis splitting"
+            group: "order_date,category"
+            group-pattern: "[n{Year}-y{Month}-x{Date}],z{Category}"
+            charts: bar
+
+          - output: 03-spiral-3d
+            file: spiral-3d
+            name: "Spiral 3D"
+            description: "Auto-value 3D spiral from x, y, z coordinates"
+            charts: line
+            chart: "line:3d-rotate,3d-visualmap"
+
+          - output: 04-noise-surface
+            file: noise-surface
+            name: "Noise Surface"
+            description: "Simplex noise height field on a 2D grid as continuous 3D"
+            charts: bar
+
+          - output: 05-noise-grid
+            file: noise-grid
+            name: "Noise Grid 21³"
+            description: "Simplex noise on a 3D voxel grid (21³) — position from x,y,z, color/size from value column"
+            charts: scatter
+            chart: "scatter:3d-visualmap,3d-rotate"
+
+          - output: 06-noise-grid-41
+            file: noise-grid-41
+            name: "Noise Grid 41³"
+            description: "ECharts simplex-noise scatter3D demo — full 41³ grid (0–40), orthographic camera, visualMap on value"
+            charts: scatter
+            chart: "scatter:3d-visualmap,3d-rotate"
+
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: ${{ matrix.name }}
+        uses: ./
+        with:
+          file: examples/csv/${{ matrix.file }}.csv
+          name: ${{ matrix.name }}
+          description: ${{ matrix.description }}
+          group: ${{ matrix.group }}
+          group-pattern: ${{ matrix.group-pattern }}
+          charts: ${{ matrix.charts }}
+          chart: ${{ matrix.chart }}
+          output-json: ${{ matrix.output }}.json
+
+      - name: Uploading json artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: json-${{ matrix.output }}
+          path: ${{ matrix.output }}.json
+
+  merge-deploy:
+    name: Merge and Deploy CSV Data
+    needs: convert
+    permissions:
+      contents: write
+    uses: ./.github/workflows/merge-deploy-examples.yml
+    with:
+      language: csv

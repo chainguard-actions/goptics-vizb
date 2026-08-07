@@ -1,0 +1,45 @@
+name: Test data-url HTML generation
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          data-url: "https://example.com/data.json"
+          charts: "bar,line"
+          name: "Remote Dataset"
+          output-html: "/tmp/remote-output.html"
+
+      - name: Assert HTML output file exists
+        run: |
+          echo "Checking for HTML output at /tmp/remote-output.html"
+          if [ ! -f "/tmp/remote-output.html" ]; then
+            echo "FAIL: HTML output file not found"
+            exit 1
+          fi
+          echo "PASS: HTML output file exists"
+
+      - name: Assert HTML contains expected content
+        run: |
+          echo "Checking HTML content"
+          if ! grep -q "html" /tmp/remote-output.html; then
+            echo "FAIL: HTML file does not appear to contain HTML content"
+            exit 1
+          fi
+          echo "PASS: HTML file contains expected content"
+
+      - name: Assert output-file-html action output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/remote-output.html" ]; then
+            echo "FAIL: expected output-file-html to be '/tmp/remote-output.html', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

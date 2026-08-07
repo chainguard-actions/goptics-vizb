@@ -1,0 +1,106 @@
+name: deploy-go-examples
+on:
+  push:
+    branches: [main]
+    paths:
+      - examples/go/**
+      - action.yml
+      - .github/workflows/deploy-examples-go.yml
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  convert:
+    name: Convert Go Benchmarks
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - output: 00-decode
+            file: 00-decode-encode
+            name: "Decode"
+            description: "Decode performance across text, level, and size"
+            group-regex: "/text=(?<n>.*)/level=(?<x>.*)/size=(?<y>.*)"
+            filter: "Decode"
+
+          - output: 01-encode
+            file: 00-decode-encode
+            name: "Encode"
+            description: "Encode performance across text, level, and size"
+            group-regex: "/text=(?<n>.*)/level=(?<x>.*)/size=(?<y>.*)"
+            filter: "Encode"
+
+          - output: 02-hash
+            file: 01-hash
+            name: "Hashing"
+            description: "Comparison of different hash functions"
+            group-regex: "Hashing64(?<x>.*)"
+
+          - output: 03-http-routing
+            file: 02-http-routing
+            name: "HTTP Routing"
+            description: "Performance comparison of popular Go HTTP routers"
+            group-pattern: x_n
+
+          - output: 04-serialization
+            file: 03-serialization
+            name: "Serialization"
+            description: "Comparison of different serialization methods"
+            group-regex: "(?<x>.*)By(?<y>.*)"
+
+          - output: 05-validator
+            file: 04-validator
+            name: "Validator"
+            description: "Validation success vs failure across rule sets"
+            group-regex: "(?<y>.*?)(?:(?<x>Success|Failure)(?<n>.*)|$)"
+
+          - output: 06-varmq
+            file: 05-varmq
+            name: "Varmq"
+            description: "Variadic queue benchmark"
+            group-pattern: x/y
+
+          - output: 07-worker-pools
+            file: 06-worker-pools
+            name: "Worker Pools"
+            description: "Performance comparison of different worker pool implementations"
+            group-pattern: n/y/x
+
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: ${{ matrix.name }}
+        uses: ./
+        with:
+          file: examples/go/${{ matrix.file }}.txt
+          name: ${{ matrix.name }}
+          description: ${{ matrix.description }}
+          group-pattern: ${{ matrix.group-pattern }}
+          group-regex: ${{ matrix.group-regex }}
+          filter: ${{ matrix.filter }}
+          chart: |
+            bar:scale=log,sort=asc
+            line:scale=log,sort=asc
+            pie:sort=asc
+          output-json: ${{ matrix.output }}.json
+
+      - name: Uploading json artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: json-${{ matrix.output }}
+          path: ${{ matrix.output }}.json
+
+  merge-deploy:
+    name: Merge and Deploy Go Benchmarks
+    needs: convert
+    permissions:
+      contents: write
+    uses: ./.github/workflows/merge-deploy-examples.yml
+    with:
+      language: go

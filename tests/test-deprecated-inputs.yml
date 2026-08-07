@@ -1,0 +1,34 @@
+name: Test deprecated bench-cmd input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          bench-cmd: "printf 'name,value\\nitem1,42\\nitem2,84\\nitem3,21\\n'"
+          parser: csv
+          name: "Deprecated Input Test"
+          charts: "bar"
+          output-json: "/tmp/deprecated-output.json"
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/deprecated-output.json" ]; then
+            echo "FAIL: JSON output file not found at /tmp/deprecated-output.json"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert JSON output is valid
+        run: |
+          if ! python3 -m json.tool /tmp/deprecated-output.json > /dev/null 2>&1; then
+            echo "FAIL: output is not valid JSON"
+            cat /tmp/deprecated-output.json
+            exit 1
+          fi
+          echo "PASS: output is valid JSON"

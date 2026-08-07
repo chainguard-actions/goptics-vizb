@@ -1,0 +1,77 @@
+name: Test file input with HTML output
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create CSV input file
+        run: |
+          cat > /tmp/input-data.csv << 'EOF'
+          name,score
+          Alice,95
+          Bob,87
+          Carol,92
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          file: "/tmp/input-data.csv"
+          parser: csv
+          name: "Score Comparison"
+          description: "Test scores for team members"
+          charts: "bar,pie"
+          output-json: "/tmp/scores.json"
+          output-html: "/tmp/scores.html"
+
+      - name: Assert JSON output file exists
+        run: |
+          echo "Checking for JSON output at /tmp/scores.json"
+          if [ ! -f "/tmp/scores.json" ]; then
+            echo "FAIL: JSON output file not found"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert HTML output file exists
+        run: |
+          echo "Checking for HTML output at /tmp/scores.html"
+          if [ ! -f "/tmp/scores.html" ]; then
+            echo "FAIL: HTML output file not found"
+            exit 1
+          fi
+          echo "PASS: HTML output file exists"
+
+      - name: Assert HTML contains expected content
+        run: |
+          echo "Checking HTML content"
+          if ! grep -q "html" /tmp/scores.html; then
+            echo "FAIL: HTML file does not appear to contain HTML content"
+            exit 1
+          fi
+          echo "PASS: HTML file contains expected content"
+
+      - name: Assert output-file-html action output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/scores.html" ]; then
+            echo "FAIL: expected output-file-html to be '/tmp/scores.html', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert output-file-json action output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/scores.json" ]; then
+            echo "FAIL: expected output-file-json to be '/tmp/scores.json', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

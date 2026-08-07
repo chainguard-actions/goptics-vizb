@@ -1,0 +1,52 @@
+name: Test file input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          file: "${{ github.workspace }}/tests/fixtures/data.csv"
+          parser: csv
+          name: "File Input Test"
+          description: "Testing file input path"
+          charts: "bar,pie"
+          output-json: "/tmp/file-output.json"
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/file-output.json" ]; then
+            echo "FAIL: JSON output file not found at /tmp/file-output.json"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert JSON output is valid and non-empty
+        run: |
+          if ! python3 -m json.tool /tmp/file-output.json > /dev/null 2>&1; then
+            echo "FAIL: output is not valid JSON"
+            cat /tmp/file-output.json
+            exit 1
+          fi
+          SIZE=$(wc -c < /tmp/file-output.json)
+          echo "JSON file size: $SIZE bytes"
+          if [ "$SIZE" -lt 10 ]; then
+            echo "FAIL: JSON output is suspiciously small"
+            exit 1
+          fi
+          echo "PASS: JSON output is valid and non-empty"
+
+      - name: Assert output-file-json output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/file-output.json" ]; then
+            echo "FAIL: expected '/tmp/file-output.json' but got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

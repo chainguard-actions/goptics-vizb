@@ -1,0 +1,34 @@
+---
+title: Settings
+description: How CLI flags map to UI settings and defaults.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The UI includes a settings panel where you can adjust chart behavior at runtime. CLI flags set the defaults — UI settings let you override them per-session.
+
+## CLI to UI Mapping
+
+| CLI Flag | UI Setting | Options |
+|----------|-----------|---------|
+| `--scale` | Scale toggle | `linear` / `log` |
+| `--sort` | Sort dropdown | `asc` / `desc` / none |
+| `--charts` | Chart visibility | `bar` / `line` / `pie` / `heatmap` / `radar` |
+| `--show-labels` | Labels toggle | on / off |
+| `--chart bar:3d-rotate` / `--chart line:3d-rotate` | Auto rotate | on / off — 3D bar and line only |
+
+{/* TODO: Add GIF showing the settings panel in the UI */}
+
+## Setting Defaults from CLI
+
+```bash
+# Enable log scale and labels by default
+vizb data.csv --scale log --show-labels -o output.html
+
+# Sort descending and show only bar chart
+vizb data.csv -s desc -c bar -o output.html
+```
+
+<Aside type="note">
+  CLI flags set the initial state. All settings can be changed in the UI without regenerating the file.
+</Aside>
