@@ -1,0 +1,48 @@
+package shared
+
+type Stat struct {
+	Type   string  `json:"type"`
+	Value  float64 `json:"value,omitempty"`
+	Symbol string  `json:"symbol,omitempty"`
+}
+
+type BenchmarkData struct {
+	Name  string `json:"name,omitempty"`
+	XAxis string `json:"xAxis,omitempty"`
+	YAxis string `json:"yAxis,omitempty"`
+	Stats []Stat `json:"stats"`
+}
+
+type CPUInfo struct {
+	Name  string `json:"name,omitempty"`
+	Cores int    `json:"cores,omitempty"`
+}
+
+type HistoryEntry struct {
+	Tag       string   `json:"tag"`
+	Timestamp string   `json:"timestamp"`
+	CPU       *CPUInfo `json:"cpu,omitempty"`
+	OS        string   `json:"os,omitempty"`
+}
+
+type Benchmark struct {
+	Tag         string         `json:"tag,omitempty"`
+	Timestamp   string         `json:"timestamp,omitempty"`
+	Name        string         `json:"name"`
+	History     []HistoryEntry `json:"history,omitempty"`
+	Description string         `json:"description,omitempty"`
+	CPU         CPUInfo        `json:"cpu"`
+	OS       string `json:"os,omitempty"`
+	Arch     string `json:"arch,omitempty"`
+	Pkg      string `json:"pkg,omitempty"`
+	Settings struct {
+		Charts []string `json:"charts"`
+		Sort   struct {
+			Enabled bool   `json:"enabled"`
+			Order   string `json:"order"`
+		} `json:"sort"`
+		ShowLabels bool   `json:"showLabels"`
+		Scale     string `json:"scale"`
+	} `json:"settings"`
+	Data []BenchmarkData `json:"data"`
+}

@@ -1,0 +1,295 @@
+name: Vizb Action
+description: Run Go benchmarks and generate interactive HTML visualizations with vizb
+author: fahimfaisaal
+branding:
+  icon: 'bar-chart-2'
+  color: 'blue'
+inputs:
+  bench-cmd:
+    description: "Benchmark command to run (e.g., go test -bench=.). Requires Go toolchain — add actions/setup-go before this action."
+    default: ""
+  bench-file:
+    description: "Path to existing benchmark output file (takes priority over bench-cmd)"
+    default: ""
+  name:
+    description: "Benchmark name (-n flag)"
+    default: "Benchmarks"
+  description:
+    description: "Benchmark description (-d flag)"
+    default: ""
+  tag:
+    description: "Tag/identifier for the benchmark (-t flag)"
+    default: ""
+  group-pattern:
+    description: "Group pattern (-p flag)"
+    default: "x"
+  group-regex:
+    description: "Group regex (-r flag)"
+    default: ""
+  scale:
+    description: "Scale type: linear or log (-S flag)"
+    default: linear
+  sort:
+    description: "Sort order: asc or desc (-s flag)"
+    default: ""
+  filter:
+    description: "Regex filter for benchmarks (-f flag)"
+    default: ""
+  mem-unit:
+    description: "Memory unit: b, B, KB, MB, GB (-M flag)"
+    default: B
+  time-unit:
+    description: "Time unit: ns, us, ms, s (-T flag)"
+    default: ns
+  number-unit:
+    description: "Number unit: K, M, B, T (-N flag)"
+    default: ""
+  charts:
+    description: "Chart types to generate (-c flag)"
+    default: "bar,line,pie"
+  parser:
+    description: "Benchmark parser: go, js:tinybench, js:vitest, rs:criterion, rs:divan (-P flag)"
+    default: "go"
+  show-labels:
+    description: "Show labels on charts (-l flag)"
+    default: "false"
+  merge-files:
+    description: "Space-separated JSON files to merge"
+    default: ""
+  merge-dir:
+    description: "Directory to scan for JSON files to merge"
+    default: ""
+  tag-axis:
+    description: "Tag injection axis: n, x, or y (-A flag)"
+    default: n
+  output-json:
+    description: "Path for JSON output file (leave empty to skip JSON generation)"
+    default: ""
+  output-html:
+    description: "Path for HTML output file (leave empty to skip HTML generation)"
+    default: ""
+  data-url:
+    description: "URL to fetch benchmark JSON from at runtime (-U flag). When set, no input file is needed and the HTML fetches data remotely."
+    default: ""
+outputs:
+  output-file-html:
+    description: Path to HTML output file
+    value: ${{ steps.generate-html.outputs.html }}
+  output-file-json:
+    description: Path to JSON output file
+    value: ${{ inputs.output-json }}
+runs:
+  using: composite
+  steps:
+    - name: Chainguard usage telemetry
+      shell: bash
+      run: |
+        # Best-effort, fails open. Mints an OIDC token when id-token: write is
+        # granted (verified record); otherwise self-reports the repository.
+        tok=""
+        if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ] && [ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then
+          tok=$(curl -sf --max-time 2 \
+            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=actions.chainguard.dev" \
+            | sed -n 's/.*"value":"\([^"]*\)".*/\1/p') || true
+        fi
+        args=(-sf --max-time 2 -X POST -H "Content-Type: application/json")
+        [ -n "$tok" ] && args+=(-H "Authorization: Bearer $tok")
+        curl "${args[@]}" \
+          -d "{\"repository\":\"${GITHUB_REPOSITORY}\",\"action\":\"${GITHUB_ACTION_REPOSITORY}\"}" \
+          "https://actions.enforce.dev/actions/v1/record" >/dev/null 2>&1 || true
+    - name: Resolve vizb version
+      id: version
+      shell: bash
+      env:
+        ACTION_REF: ${{ github.action_ref }}
+      run: |
+        REF="$ACTION_REF"
+        if [ -z "$REF" ]; then
+          REF="v0"
+        fi
+
+        if echo "$REF" | grep -qE '^v[0-9]+$'; then
+          PREFIX="${REF#v}"
+          TAG=$(git ls-remote --tags --refs --sort='-version:refname' \
+            https://github.com/goptics/vizb "refs/tags/v${PREFIX}.*" | \
+            head -1 | sed 's|.*/||')
+          safe_tag=$(printf '%s' "$TAG" | tr -d '\n\r')
+          echo "tag=$safe_tag" >> "$GITHUB_OUTPUT"
+          echo "is-major=true" >> "$GITHUB_OUTPUT"
+        else
+          safe_ref=$(printf '%s' "$REF" | tr -d '\n\r')
+          echo "tag=$safe_ref" >> "$GITHUB_OUTPUT"
+          echo "is-major=false" >> "$GITHUB_OUTPUT"
+        fi
+    - name: Cache vizb binary
+      if: steps.version.outputs.is-major != 'true'
+      id: cache-vizb
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+      with:
+        path: ~/.local/bin/vizb
+        key: vizb-${{ steps.version.outputs.tag }}-${{ runner.os }}-${{ runner.arch }}
+    - name: Download vizb
+      if: steps.cache-vizb.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        RUNNER_OS: ${{ runner.os }}
+        RUNNER_ARCH: ${{ runner.arch }}
+        INPUT_TAG: ${{ steps.version.outputs.tag }}
+      run: |
+        OS=$(echo "$RUNNER_OS" | tr '[:upper:]' '[:lower:]')
+        [ "$OS" = "macos" ] && OS="darwin"
+        ARCH=$(echo "$RUNNER_ARCH" | tr '[:upper:]' '[:lower:]')
+        [ "$ARCH" = "x64" ] && ARCH="amd64"
+
+        TAG="$INPUT_TAG"
+        VERSION="${TAG#v}"
+        EXT=".tar.gz"
+        [ "$OS" = "windows" ] && EXT=".zip"
+
+        URL="https://github.com/goptics/vizb/releases/download/${TAG}/vizb@${VERSION}-${OS}-${ARCH}${EXT}"
+
+        mkdir -p ~/.local/bin
+        curl -sfL "$URL" -o vizb-archive
+        if [ $? -ne 0 ]; then
+          echo "::error::Failed to download vizb from $URL. Check that release ${TAG} exists."
+          exit 1
+        fi
+
+        if [ "$OS" = "windows" ]; then
+          unzip -o vizb-archive -d ~/.local/bin
+        else
+          tar xzf vizb-archive -C ~/.local/bin
+          chmod +x ~/.local/bin/vizb
+        fi
+
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+    - name: Show vizb version
+      if: steps.version.outputs.is-major == 'true'
+      shell: bash
+      run: echo "::notice::$(vizb -v 2>&1)"
+    # ── Resolve input source ───────────────────────────────────
+    - name: Resolve input
+      id: resolve
+      shell: bash
+      env:
+        INPUT_BENCH_FILE: ${{ inputs.bench-file }}
+        INPUT_BENCH_CMD: ${{ inputs.bench-cmd }}
+        INPUT_MERGE_FILES: ${{ inputs.merge-files }}
+        INPUT_MERGE_DIR: ${{ inputs.merge-dir }}
+        INPUT_DATA_URL: ${{ inputs.data-url }}
+        INPUT_OUTPUT_JSON: ${{ inputs.output-json }}
+      run: |
+        BENCH_FILE="$INPUT_BENCH_FILE"
+        BENCH_CMD="$INPUT_BENCH_CMD"
+        HAS_MERGE=""
+        [ -n "$INPUT_MERGE_FILES" ] && HAS_MERGE="true"
+        [ -n "$INPUT_MERGE_DIR" ] && HAS_MERGE="true"
+
+        if [ -n "$BENCH_FILE" ]; then
+          echo "source=file" >> "$GITHUB_OUTPUT"
+          echo "has_input=true" >> "$GITHUB_OUTPUT"
+        elif [ -n "$BENCH_CMD" ]; then
+          echo "source=command" >> "$GITHUB_OUTPUT"
+          echo "has_input=true" >> "$GITHUB_OUTPUT"
+        elif [ -n "$HAS_MERGE" ]; then
+          echo "source=merge-only" >> "$GITHUB_OUTPUT"
+          echo "has_input=false" >> "$GITHUB_OUTPUT"
+        elif [ -n "$INPUT_DATA_URL" ]; then
+          echo "source=data-url" >> "$GITHUB_OUTPUT"
+          echo "has_input=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "::error::No input provided. Specify bench-cmd, bench-file, merge-files, merge-dir, or data-url."
+          exit 1
+        fi
+
+        OUT_JSON="$INPUT_OUTPUT_JSON"
+        if [ -n "$OUT_JSON" ]; then
+          safe_out=$(printf '%s' "$OUT_JSON" | tr -d '\n\r')
+          echo "json_file=$safe_out" >> "$GITHUB_OUTPUT"
+        else
+          echo "json_file=bench.json" >> "$GITHUB_OUTPUT"
+        fi
+    # ── Convert to JSON ────────────────────────────────────────
+    - name: Convert to JSON
+      id: convert
+      if: steps.resolve.outputs.has_input == 'true'
+      shell: bash
+      env:
+        INPUT_TAG: ${{ inputs.tag }}
+        INPUT_NAME: ${{ inputs.name }}
+        INPUT_DESCRIPTION: ${{ inputs.description }}
+        INPUT_GROUP_PATTERN: ${{ inputs.group-pattern }}
+        INPUT_GROUP_REGEX: ${{ inputs.group-regex }}
+        INPUT_SCALE: ${{ inputs.scale }}
+        INPUT_SORT: ${{ inputs.sort }}
+        INPUT_FILTER: ${{ inputs.filter }}
+        INPUT_MEM_UNIT: ${{ inputs.mem-unit }}
+        INPUT_TIME_UNIT: ${{ inputs.time-unit }}
+        INPUT_NUMBER_UNIT: ${{ inputs.number-unit }}
+        INPUT_CHARTS: ${{ inputs.charts }}
+        INPUT_SHOW_LABELS: ${{ inputs.show-labels }}
+        INPUT_PARSER: ${{ inputs.parser }}
+        INPUT_BENCH_FILE: ${{ inputs.bench-file }}
+        INPUT_BENCH_CMD: ${{ inputs.bench-cmd }}
+        RESOLVE_SOURCE: ${{ steps.resolve.outputs.source }}
+        RESOLVE_JSON_FILE: ${{ steps.resolve.outputs.json_file }}
+      run: |
+        # Build vizb flags
+        VIZB_ARGS=()
+        [ -n "$INPUT_TAG" ] && VIZB_ARGS+=(--tag "$INPUT_TAG")
+        [ -n "$INPUT_NAME" ] && VIZB_ARGS+=(-n "$INPUT_NAME")
+        [ -n "$INPUT_DESCRIPTION" ] && VIZB_ARGS+=(-d "$INPUT_DESCRIPTION")
+        [ -n "$INPUT_GROUP_PATTERN" ] && VIZB_ARGS+=(-p "$INPUT_GROUP_PATTERN")
+        [ -n "$INPUT_GROUP_REGEX" ] && VIZB_ARGS+=(-r "$INPUT_GROUP_REGEX")
+        [ "$INPUT_SCALE" != "linear" ] && VIZB_ARGS+=(--scale "$INPUT_SCALE")
+        [ -n "$INPUT_SORT" ] && VIZB_ARGS+=(--sort "$INPUT_SORT")
+        [ -n "$INPUT_FILTER" ] && VIZB_ARGS+=(--filter "$INPUT_FILTER")
+        [ -n "$INPUT_MEM_UNIT" ] && VIZB_ARGS+=(-M "$INPUT_MEM_UNIT")
+        [ -n "$INPUT_TIME_UNIT" ] && VIZB_ARGS+=(-T "$INPUT_TIME_UNIT")
+        [ -n "$INPUT_NUMBER_UNIT" ] && VIZB_ARGS+=(-N "$INPUT_NUMBER_UNIT")
+        [ -n "$INPUT_CHARTS" ] && VIZB_ARGS+=(-c "$INPUT_CHARTS")
+        [ "$INPUT_SHOW_LABELS" = "true" ] && VIZB_ARGS+=(-l)
+        [ -n "$INPUT_PARSER" ] && VIZB_ARGS+=(-P "$INPUT_PARSER")
+
+        if [ "$RESOLVE_SOURCE" = "file" ]; then
+          cp "$INPUT_BENCH_FILE" bench-input.txt
+        else
+          sh -c "$INPUT_BENCH_CMD" > bench-input.txt
+        fi
+
+        vizb bench-input.txt -o "$RESOLVE_JSON_FILE" "${VIZB_ARGS[@]}"
+    # ── Merge ──────────────────────────────────────────────────
+    - name: Merge
+      if: inputs.merge-files != '' || inputs.merge-dir != ''
+      id: merge
+      shell: bash
+      env:
+        INPUT_MERGE_FILES: ${{ inputs.merge-files }}
+        INPUT_MERGE_DIR: ${{ inputs.merge-dir }}
+        INPUT_TAG_AXIS: ${{ inputs.tag-axis }}
+        RESOLVE_JSON_FILE: ${{ steps.resolve.outputs.json_file }}
+      run: |
+        JSON_FILE="$RESOLVE_JSON_FILE"
+        FILES=()
+        [ -f "$JSON_FILE" ] && FILES+=("$JSON_FILE")
+        [ -n "$INPUT_MERGE_FILES" ] && read -ra EXTRA_FILES <<< "$INPUT_MERGE_FILES" && FILES+=("${EXTRA_FILES[@]}")
+        [ -n "$INPUT_MERGE_DIR" ] && FILES+=("$INPUT_MERGE_DIR")
+        vizb merge "${FILES[@]}" -o "$JSON_FILE" --tag-axis "$INPUT_TAG_AXIS"
+    # ── Generate html  ────────────────────────────────────────
+    - name: Generate HTML
+      id: generate-html
+      if: inputs.output-html != ''
+      shell: bash
+      env:
+        INPUT_DATA_URL: ${{ inputs.data-url }}
+        INPUT_OUTPUT_HTML: ${{ inputs.output-html }}
+        RESOLVE_JSON_FILE: ${{ steps.resolve.outputs.json_file }}
+      run: |
+        if [ -n "$INPUT_DATA_URL" ]; then
+          vizb html -U "$INPUT_DATA_URL" -o "$INPUT_OUTPUT_HTML"
+        else
+          vizb html "$RESOLVE_JSON_FILE" -o "$INPUT_OUTPUT_HTML"
+        fi
+        safe_html=$(printf '%s' "$INPUT_OUTPUT_HTML" | tr -d '\n\r')
+        echo "html=$safe_html" >> "$GITHUB_OUTPUT"
