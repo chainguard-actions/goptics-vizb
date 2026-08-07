@@ -1,0 +1,54 @@
+name: Test deprecated bench-file input (backward compatibility)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create CSV input file
+        run: |
+          cat > /tmp/deprecated-test-data.csv << 'EOF'
+          name,ops
+          FuncA,1000
+          FuncB,2000
+          FuncC,1500
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          bench-file: /tmp/deprecated-test-data.csv
+          name: "Deprecated Input Test"
+          output-json: /tmp/deprecated-output.json
+          parser: csv
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/deprecated-output.json" ]; then
+            echo "FAIL: output JSON file not found at /tmp/deprecated-output.json"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert JSON output is non-empty
+        run: |
+          SIZE=$(wc -c < /tmp/deprecated-output.json)
+          echo "JSON file size: $SIZE bytes"
+          if [ "$SIZE" -eq 0 ]; then
+            echo "FAIL: JSON output file is empty"
+            exit 1
+          fi
+          echo "PASS: JSON output is non-empty"
+
+      - name: Assert output-file-json output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/deprecated-output.json" ]; then
+            echo "FAIL: expected output-file-json to be '/tmp/deprecated-output.json', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

@@ -1,0 +1,126 @@
+name: CLI
+
+on:
+  workflow_call:
+  push:
+    branches: [main]
+    paths:
+      - '**.go'
+      - go.mod
+      - go.sum
+      - .goreleaser.yml
+      - action.yml
+      - .github/workflows/action-ci.yml
+      - .github/workflows/cli.yml
+      - .github/actions/setup-embed-ui/**
+  pull_request:
+    branches: [main]
+    paths:
+      - '**.go'
+      - 'ui/**'
+      - go.mod
+      - go.sum
+      - .goreleaser.yml
+      - action.yml
+      - .github/workflows/action-ci.yml
+      - .github/workflows/cli.yml
+      - .github/actions/setup-embed-ui/**
+
+permissions:
+  contents: read
+
+jobs:
+  # Feature branches must not land gen churn; main is owned by sync-embed-ui.
+  forbid-gen-commit:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Reject pkg/template/vizb-ui.gen.go in PR diffs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          base="$BASE_SHA"
+          head="$HEAD_SHA"
+          if git diff --name-only "$base"..."$head" | grep -qx 'pkg/template/vizb-ui.gen.go'; then
+            echo "error: do not commit pkg/template/vizb-ui.gen.go"
+            echo "  The tracked snapshot on main is updated by .github/workflows/sync-embed-ui.yml (#319)."
+            echo "  Unstage with: git restore --staged pkg/template/vizb-ui.gen.go"
+            echo "  Discard local rewrite: git restore pkg/template/vizb-ui.gen.go"
+            exit 1
+          fi
+          echo "OK: gen file not modified in this PR"
+
+  lint:
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # PRs: ephemeral re-embed so CLI tests see unmerged ui/ changes.
+      # main / release (workflow_call): use tracked gen (sync-embed-ui keeps main current).
+      - name: Rebuild embed for PR
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/setup-embed-ui
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v2.12
+
+  format:
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+
+      - name: Check gofmt
+        run: |
+          unformatted=$(gofmt -l $(find . -name '*.go' \
+            -not -path './pkg/template/vizb-ui.gen.go' \
+            -not -path './.git/*'))
+          if [ -n "$unformatted" ]; then
+            echo "$unformatted"
+            exit 1
+          fi
+
+  test:
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Rebuild embed for PR
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/setup-embed-ui
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - run: go mod download
+
+      - run: go test -count=1 -coverpkg=./... -coverprofile=coverage.txt -covermode=atomic ./...
+
+      - uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          files: ./coverage.txt
+          flags: cli
+          name: cli
+
+  action:
+    needs: [lint, format, test]
+    uses: ./.github/workflows/action-ci.yml

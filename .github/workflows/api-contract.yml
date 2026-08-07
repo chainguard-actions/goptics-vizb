@@ -1,0 +1,77 @@
+name: API Contract
+
+on:
+  workflow_call:
+  push:
+    branches: [main]
+    paths:
+      - 'api/**'
+      - 'shared/dataset.go'
+      - 'shared/stat.go'
+      - 'internal/charts/**'
+      - 'docs/src/content/docs/commands/serve.mdx'
+      - 'docs/astro.config.mjs'
+      - 'docs/package.json'
+      - 'docs/pnpm-lock.yaml'
+      - '.github/actions/setup-js/**'
+      - '.github/workflows/api-contract.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'api/**'
+      - 'shared/dataset.go'
+      - 'shared/stat.go'
+      - 'internal/charts/**'
+      - 'docs/src/content/docs/commands/serve.mdx'
+      - 'docs/astro.config.mjs'
+      - 'docs/package.json'
+      - 'docs/pnpm-lock.yaml'
+      - '.github/actions/setup-js/**'
+      - '.github/workflows/api-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Node and pnpm
+        uses: ./.github/actions/setup-js
+        with:
+          cache-dependency-path: api/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+        working-directory: api
+
+      - run: pnpm lint
+        working-directory: api
+
+      - run: pnpm bundle
+        working-directory: api
+
+      - run: go test -count=1 .
+        working-directory: api
+
+  docs:
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup Node and pnpm
+        uses: ./.github/actions/setup-js
+        with:
+          cache-dependency-path: docs/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+        working-directory: docs
+
+      - run: pnpm build
+        working-directory: docs

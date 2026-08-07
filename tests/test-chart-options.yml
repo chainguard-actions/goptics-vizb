@@ -1,0 +1,77 @@
+name: Test chart options and metadata inputs
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create CSV input file
+        run: |
+          cat > /tmp/chart-options-data.csv << 'EOF'
+          name,requests
+          EndpointA,1200
+          EndpointB,800
+          EndpointC,950
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          file: /tmp/chart-options-data.csv
+          name: "API Throughput"
+          description: "Requests per second by endpoint"
+          tag: "v1.0"
+          charts: "bar,line"
+          output-json: /tmp/chart-options-output.json
+          output-html: /tmp/chart-options-output.html
+          parser: csv
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/chart-options-output.json" ]; then
+            echo "FAIL: output JSON file not found"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert HTML output file exists
+        run: |
+          if [ ! -f "/tmp/chart-options-output.html" ]; then
+            echo "FAIL: output HTML file not found"
+            exit 1
+          fi
+          echo "PASS: HTML output file exists"
+
+      - name: Assert HTML output contains expected content
+        run: |
+          SIZE=$(wc -c < /tmp/chart-options-output.html)
+          echo "HTML file size: $SIZE bytes"
+          if [ "$SIZE" -eq 0 ]; then
+            echo "FAIL: HTML output file is empty"
+            exit 1
+          fi
+          echo "PASS: HTML output is non-empty"
+
+      - name: Assert output-file-html output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/chart-options-output.html" ]; then
+            echo "FAIL: expected output-file-html to be '/tmp/chart-options-output.html', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert output-file-json output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/chart-options-output.json" ]; then
+            echo "FAIL: expected output-file-json to be '/tmp/chart-options-output.json', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

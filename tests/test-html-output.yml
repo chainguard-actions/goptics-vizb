@@ -1,0 +1,79 @@
+name: Test HTML output generation
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create CSV input file
+        run: |
+          cat > /tmp/html-test-data.csv << 'EOF'
+          name,latency
+          ServiceA,12
+          ServiceB,34
+          ServiceC,8
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          file: /tmp/html-test-data.csv
+          name: "Latency Comparison"
+          description: "Service latency benchmarks"
+          output-json: /tmp/html-test.json
+          output-html: /tmp/html-test.html
+          parser: csv
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/html-test.json" ]; then
+            echo "FAIL: output JSON file not found at /tmp/html-test.json"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert HTML output file exists
+        run: |
+          if [ ! -f "/tmp/html-test.html" ]; then
+            echo "FAIL: output HTML file not found at /tmp/html-test.html"
+            exit 1
+          fi
+          echo "PASS: HTML output file exists"
+
+      - name: Assert HTML output is non-empty and looks like HTML
+        run: |
+          SIZE=$(wc -c < /tmp/html-test.html)
+          echo "HTML file size: $SIZE bytes"
+          if [ "$SIZE" -eq 0 ]; then
+            echo "FAIL: HTML output file is empty"
+            exit 1
+          fi
+          if ! grep -qi '<html' /tmp/html-test.html; then
+            echo "FAIL: HTML output does not contain <html tag"
+            exit 1
+          fi
+          echo "PASS: HTML output is valid"
+
+      - name: Assert output-file-html output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/html-test.html" ]; then
+            echo "FAIL: expected output-file-html to be '/tmp/html-test.html', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert output-file-json output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/html-test.json" ]; then
+            echo "FAIL: expected output-file-json to be '/tmp/html-test.json', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
