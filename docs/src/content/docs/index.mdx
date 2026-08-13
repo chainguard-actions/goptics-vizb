@@ -1,0 +1,65 @@
+---
+title: Vizb
+description: Turn CSV, JSON, and benchmarks into interactive charts and stats without writing chart code. One HTML report you can open in any browser.
+template: splash
+hero:
+  tagline: Turn CSV, JSON, and benchmarks into interactive charts and stats — without writing chart code. One HTML report you open in any browser.
+  image:
+    html: <svg class="vizb-hero" viewBox="0 0 300 300" fill="none" aria-label="Vizb" stroke-linejoin="round" stroke-width="2"><path class="viz-path" d="M32.8125 56.25L107.797 290.625H173.438L98.4375 56.25H32.8125Z" fill="#5470C6" stroke="#5470C6"/><path class="viz-path" d="M107.797 290.625H173.422L192.172 234.375H126.547L107.797 290.625Z" fill="#1A202C" stroke="#1A202C"/><path class="viz-path" d="M126.562 234.375L145.424 178.022H211.017L192.187 234.375H126.562Z" fill="#3BA272" stroke="#3BA272"/><path class="viz-path" d="M145.424 178.022L164.237 121.429H229.831L211.017 178.022H145.424Z" fill="#FC8452" stroke="#FC8452"/><path class="viz-path" d="M164.237 121.429L201.563 9.375H267.188L229.831 121.429H164.237Z" fill="#EE6666" stroke="#EE6666"/></svg>
+  actions:
+    - text: Get Started
+      link: /getting-started
+      variant: primary
+      icon: rocket
+    - text: View Examples
+      link: /examples
+      variant: minimal
+      icon: right-arrow
+---
+
+import { CardGrid, Card, LinkCard } from '@astrojs/starlight/components';
+import QuickInstall from '../../components/QuickInstall.mdx';
+import QuickExample from '../../components/QuickExample.astro';
+import LogoAnimation from '../../components/LogoAnimation.astro';
+
+## Quick Install
+
+<QuickInstall />
+
+## Quick Example
+
+<QuickExample />
+
+## Start from a goal
+
+<CardGrid>
+  <LinkCard title="Introduction" href="/getting-started" description="What Vizb is and your first chart." />
+  <LinkCard title="Dimensions" href="/getting-started/dimensions" description="Name, X, Y, and Z on every chart." />
+  <LinkCard title="Chart a CSV / JSON table" href="/guides/data" description="Numeric columns, grouping, aggregation, and --json-path." />
+  <LinkCard title="Pick a chart type" href="/charts" description="How bar, line, scatter, pie, heatmap, radar, Sankey, and Chord read x/y/z." />
+  <LinkCard title="Benchmark output" href="/guides/parsers" description="Go, Rust, and JavaScript bench parsers." />
+  <LinkCard title="CI and merge history" href="/ci-cd/github-action" description="GitHub Action, stateless and stateful tracking." />
+</CardGrid>
+
+## Capabilities
+
+<CardGrid stagger>
+  <Card title="Tables and benchmarks" icon="seti:csv">
+    CSV and JSON tables, plus Go, Rust, and JavaScript benchmark output. Format is detected from content. See [Supported inputs](/guides/parsers).
+  </Card>
+  <Card title="Shared dimension model" icon="list-format">
+    Name, X, Y, and Z drive every chart type. Group for category breakdowns; select for coordinate plots. See [Dimensions](/getting-started/dimensions).
+  </Card>
+  <Card title="Self-contained HTML" icon="laptop">
+    Interactive UI in one file: sort, swap axes, scale, themes, JPEG export, optional stats. Open it in any browser. See [UI](/ui).
+  </Card>
+  <Card title="CLI, Action, and API" icon="seti:puppet">
+    Local CLI, composite [GitHub Action](/ci-cd/github-action), and [REST](/commands/serve) for the same pipeline. Merge datasets across runs when you need history.
+  </Card>
+</CardGrid>
+
+<p>
+  Full inventory: <a href="/features">Features</a>. Live samples: <a href="/examples">Examples</a>.
+</p>
+
+<LogoAnimation />

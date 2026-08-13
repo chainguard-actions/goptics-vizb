@@ -1,0 +1,42 @@
+name: Test JSON input with parser option
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create JSON fixture file
+        run: |
+          cat > "$GITHUB_WORKSPACE/data.json" <<'EOF'
+          [
+            {"name": "alpha", "value": 42},
+            {"name": "beta", "value": 87},
+            {"name": "gamma", "value": 63}
+          ]
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          file: "${{ github.workspace }}/data.json"
+          parser: "json"
+          name: "JSON Dataset"
+          output-json: "${{ github.workspace }}/result.json"
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "$GITHUB_WORKSPACE/result.json" ]; then
+            echo "FAIL: result.json was not created"
+            exit 1
+          fi
+          echo "PASS: result.json exists"
+
+      - name: Assert JSON output is valid
+        run: |
+          if ! node -e "JSON.parse(require('fs').readFileSync('$GITHUB_WORKSPACE/result.json','utf8'))"; then
+            echo "FAIL: result.json is not valid JSON"
+            exit 1
+          fi
+          echo "PASS: result.json is valid JSON"

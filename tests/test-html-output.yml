@@ -1,0 +1,69 @@
+name: Test HTML output generation
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          cmd: "printf 'language,speed\\nGo,1000\\nRust,950\\nPython,100'"
+          name: "Language Benchmark"
+          title: "Language Speed Comparison"
+          output-json: "${{ github.workspace }}/bench.json"
+          output-html: "${{ github.workspace }}/bench.html"
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "$GITHUB_WORKSPACE/bench.json" ]; then
+            echo "FAIL: bench.json was not created"
+            exit 1
+          fi
+          echo "PASS: bench.json exists"
+
+      - name: Assert HTML output file exists
+        run: |
+          if [ ! -f "$GITHUB_WORKSPACE/bench.html" ]; then
+            echo "FAIL: bench.html was not created"
+            exit 1
+          fi
+          echo "PASS: bench.html exists"
+
+      - name: Assert HTML file contains expected content
+        run: |
+          CONTENT=$(cat "$GITHUB_WORKSPACE/bench.html")
+          if [ -z "$CONTENT" ]; then
+            echo "FAIL: bench.html is empty"
+            exit 1
+          fi
+          # HTML should contain DOCTYPE or html tag
+          if ! echo "$CONTENT" | grep -qi '<html\|<!DOCTYPE'; then
+            echo "FAIL: bench.html does not appear to be valid HTML"
+            exit 1
+          fi
+          echo "PASS: bench.html is non-empty HTML"
+
+      - name: Assert output-file-html output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: output-file-html is empty"
+            exit 1
+          fi
+          echo "PASS: output-file-html = $ACTUAL"
+
+      - name: Assert output-file-json output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: output-file-json is empty"
+            exit 1
+          fi
+          echo "PASS: output-file-json = $ACTUAL"

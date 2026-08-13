@@ -1,0 +1,105 @@
+package cli
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/goptics/vizb/internal/flags"
+	"github.com/goptics/vizb/pkg/parser"
+	"github.com/goptics/vizb/pkg/style"
+)
+
+// DataFlags are the parser/grouping/metadata descriptors every data-consuming
+// command carries (root and every chart subcommand). None has a JSONKey: their
+// values feed parser.Config and dataset metadata (read back by name), never the
+// chart seed. Soft flags warn-and-default; they are never fatal. This replaces
+// the former CommonOptions hand-written Bind + validationRules.
+//
+// Flag Usage lines stay short for --help scanning; full recipes live in docs.
+var DataFlags = []flags.Flag{
+	{Name: "name", Shorthand: "n", Default: "Comparisons", Usage: "Dataset display name", Kind: flags.KindString},
+	{Name: "title", Usage: "Chart title when --col-axis yields a single chart", Kind: flags.KindString},
+	{
+		Name: "theme", Kind: flags.KindStringArray,
+		Usage:        "Embed color theme (name, #hex palette, or structured form; repeatable)",
+		Label:        "theme",
+		Normalizer:   style.NormalizeTheme,
+		SoftValidate: style.ValidateTheme,
+	},
+	{Name: "description", Shorthand: "d", Usage: "Dataset description", Kind: flags.KindString},
+	{Name: "output", Shorthand: "o", Usage: "Output path (.html or .json)", Kind: flags.KindString},
+	{Name: "tag", Shorthand: "t", Usage: "Tag for merge/compare", Kind: flags.KindString},
+	{Name: "id", Usage: "Dataset id for ?id= deep links", Kind: flags.KindString},
+	{
+		Name: "parser", Shorthand: "P", Default: "auto", Kind: flags.KindString,
+		Usage:        "Input parser (auto, " + strings.Join(parser.AvailableParsers(), ", ") + ")",
+		Label:        "parser",
+		SoftValidate: validateParser,
+	},
+	{
+		Name: "group-pattern", Shorthand: "p", Default: "x", Kind: flags.KindString,
+		Usage:        "Map group slots to n/x/y/z dimensions",
+		Label:        "group pattern",
+		SoftValidate: parser.ValidateGroupPattern,
+	},
+	{Name: "group-regex", Shorthand: "r", Usage: "Regex with named captures for n/x/y/z", Kind: flags.KindString},
+	{Name: "group", Shorthand: "g", Usage: "Category columns/fields for dimensions (match -p separators)", Kind: flags.KindStringSlice},
+	{Name: "filter", Shorthand: "f", Usage: "Keep rows or benchmark names matching this regex", Kind: flags.KindString},
+	{
+		Name: "mem-unit", Shorthand: "M", Default: "B", Kind: flags.KindString,
+		Usage:      "Memory unit (b, B, KB, MB, GB)",
+		Label:      "memory unit",
+		ValidSet:   []string{"b", "B", "KB", "MB", "GB"},
+		Normalizer: normalizeMemUnit,
+	},
+	{
+		Name: "time-unit", Shorthand: "T", Default: "ns", Kind: flags.KindString,
+		Usage:    "Time unit (ns, us, ms, s)",
+		Label:    "time unit",
+		ValidSet: []string{"ns", "us", "ms", "s"},
+	},
+	{
+		Name: "number-unit", Shorthand: "N", Kind: flags.KindString,
+		Usage:      "Number scale (K, M, B, T); omit for as-is",
+		Label:      "number unit",
+		ValidSet:   []string{"K", "M", "B", "T"},
+		Normalizer: strings.ToUpper,
+	},
+	{
+		Name: "round", Kind: flags.KindBool,
+		Usage: "Round values to 2 decimals in written output (irreversible)",
+	},
+	{Name: "select", Usage: "CSV/JSON: pick metrics or x,y[,z] coordinates (repeatable)", Kind: flags.KindStringArray},
+	{
+		Name: "col-axis", Shorthand: "A", Kind: flags.KindString,
+		Usage:    "Put numeric column names on this axis (n, x, y, z)",
+		Label:    "col-axis",
+		ValidSet: []string{"n", "x", "y", "z"},
+	},
+	{Name: "json-path", Usage: "JSON: jq-like path to the array to chart", Kind: flags.KindString},
+}
+
+// normalizeMemUnit canonicalises lowercase memory units (kb/mb/gb) to their
+// upper form so validation against the valid set passes.
+func normalizeMemUnit(s string) string {
+	switch s {
+	case "kb":
+		return "KB"
+	case "mb":
+		return "MB"
+	case "gb":
+		return "GB"
+	}
+	return s
+}
+
+// validateParser reports whether key names a registered parser (or "auto").
+func validateParser(key string) error {
+	if key == "auto" {
+		return nil
+	}
+	if _, ok := parser.Parsers[key]; !ok {
+		return fmt.Errorf("unknown parser '%s'; available: auto, %v", key, parser.AvailableParsers())
+	}
+	return nil
+}

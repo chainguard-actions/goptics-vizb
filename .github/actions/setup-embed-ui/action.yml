@@ -1,0 +1,20 @@
+name: Setup embed UI
+description: Install UI deps and generate pkg/template/vizb-ui.gen.go for Go build/test
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node and pnpm
+      uses: ./.github/actions/setup-js
+      with:
+        cache-dependency-path: ui/pnpm-lock.yaml
+
+    - name: Install UI dependencies
+      shell: bash
+      working-directory: ui
+      run: pnpm install --frozen-lockfile
+
+    - name: Build embed UI
+      shell: bash
+      working-directory: ui
+      run: pnpm build:embed

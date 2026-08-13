@@ -1,0 +1,58 @@
+name: Test file input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create CSV fixture file
+        run: |
+          cat > "$GITHUB_WORKSPACE/data.csv" <<'EOF'
+          name,score
+          alpha,100
+          beta,200
+          gamma,150
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          file: "${{ github.workspace }}/data.csv"
+          name: "Score Comparison"
+          description: "Test scores"
+          output-json: "${{ github.workspace }}/scores.json"
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "$GITHUB_WORKSPACE/scores.json" ]; then
+            echo "FAIL: scores.json was not created"
+            exit 1
+          fi
+          echo "PASS: scores.json exists"
+
+      - name: Assert JSON output is valid and non-empty
+        run: |
+          CONTENT=$(cat "$GITHUB_WORKSPACE/scores.json")
+          echo "content length: ${#CONTENT}"
+          if [ -z "$CONTENT" ]; then
+            echo "FAIL: scores.json is empty"
+            exit 1
+          fi
+          if ! node -e "JSON.parse(require('fs').readFileSync('$GITHUB_WORKSPACE/scores.json','utf8'))"; then
+            echo "FAIL: scores.json is not valid JSON"
+            exit 1
+          fi
+          echo "PASS: scores.json is valid and non-empty"
+
+      - name: Assert output-file-json output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: output-file-json is empty"
+            exit 1
+          fi
+          echo "PASS: output-file-json = $ACTUAL"

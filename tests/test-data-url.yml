@@ -1,0 +1,47 @@
+name: Test data-url HTML generation
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          data-url: "https://example.com/data.json"
+          output-html: "${{ github.workspace }}/remote.html"
+          name: "Remote Dataset"
+
+      - name: Assert HTML output file exists
+        run: |
+          if [ ! -f "$GITHUB_WORKSPACE/remote.html" ]; then
+            echo "FAIL: remote.html was not created"
+            exit 1
+          fi
+          echo "PASS: remote.html exists"
+
+      - name: Assert HTML file is non-empty
+        run: |
+          CONTENT=$(cat "$GITHUB_WORKSPACE/remote.html")
+          if [ -z "$CONTENT" ]; then
+            echo "FAIL: remote.html is empty"
+            exit 1
+          fi
+          if ! echo "$CONTENT" | grep -qi '<html\|<!DOCTYPE'; then
+            echo "FAIL: remote.html does not appear to be valid HTML"
+            exit 1
+          fi
+          echo "PASS: remote.html is non-empty HTML"
+
+      - name: Assert output-file-html output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: output-file-html is empty"
+            exit 1
+          fi
+          echo "PASS: output-file-html = $ACTUAL"

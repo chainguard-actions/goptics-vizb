@@ -1,0 +1,42 @@
+name: Test CSV command input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          cmd: "printf 'name,value\\nfoo,10\\nbar,20\\nbaz,30'"
+          name: "Test Dataset"
+          output-json: "${{ github.workspace }}/output.json"
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "$GITHUB_WORKSPACE/output.json" ]; then
+            echo "FAIL: output.json was not created"
+            exit 1
+          fi
+          echo "PASS: output.json exists"
+
+      - name: Assert JSON output is valid JSON
+        run: |
+          if ! node -e "JSON.parse(require('fs').readFileSync('$GITHUB_WORKSPACE/output.json','utf8'))"; then
+            echo "FAIL: output.json is not valid JSON"
+            exit 1
+          fi
+          echo "PASS: output.json is valid JSON"
+
+      - name: Assert output-file-json output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: output-file-json is empty"
+            exit 1
+          fi
+          echo "PASS: output-file-json = $ACTUAL"
