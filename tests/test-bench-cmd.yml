@@ -1,0 +1,55 @@
+name: Test bench-cmd with shell command
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create benchmark output script
+        run: |
+          cat > /tmp/fake-bench.sh << 'EOF'
+          #!/bin/sh
+          echo "goos: linux"
+          echo "goarch: amd64"
+          echo "pkg: example"
+          echo "BenchmarkAdd/small-8         	1000000000	         0.2500 ns/op	       0 B/op	       0 allocs/op"
+          echo "BenchmarkAdd/medium-8        	 500000000	         0.5000 ns/op	       0 B/op	       0 allocs/op"
+          echo "BenchmarkMul/small-8         	1000000000	         0.3000 ns/op	       0 B/op	       0 allocs/op"
+          echo "PASS"
+          echo "ok  	example	0.123s"
+          EOF
+          chmod +x /tmp/fake-bench.sh
+
+      - id: action
+        uses: .
+        with:
+          bench-cmd: "sh /tmp/fake-bench.sh"
+          name: "CmdBenchmarks"
+          output-json: tests/output/cmd-bench.json
+
+      - name: Assert JSON output path is set
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: output-file-json is empty"
+            exit 1
+          fi
+          echo "PASS: output-file-json=$ACTUAL"
+
+      - name: Assert JSON file exists and is valid
+        run: |
+          if [ ! -f "tests/output/cmd-bench.json" ]; then
+            echo "FAIL: JSON output file not found at tests/output/cmd-bench.json"
+            exit 1
+          fi
+          SIZE=$(wc -c < tests/output/cmd-bench.json)
+          echo "JSON file size: $SIZE bytes"
+          if [ "$SIZE" -lt 10 ]; then
+            echo "FAIL: JSON file is too small (likely empty or invalid)"
+            exit 1
+          fi
+          echo "PASS: JSON file exists and is non-empty"

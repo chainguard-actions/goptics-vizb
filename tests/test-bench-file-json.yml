@@ -1,0 +1,49 @@
+name: Test bench-file with JSON output
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          bench-file: tests/fixtures/bench.txt
+          name: "TestBenchmarks"
+          description: "Test benchmark run"
+          tag: "v1.0.0"
+          output-json: tests/output/bench.json
+
+      - name: Assert JSON output path is set
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: output-file-json is empty"
+            exit 1
+          fi
+          echo "PASS: output-file-json=$ACTUAL"
+
+      - name: Assert JSON file exists
+        run: |
+          if [ ! -f "tests/output/bench.json" ]; then
+            echo "FAIL: JSON output file not found at tests/output/bench.json"
+            exit 1
+          fi
+          echo "PASS: JSON file exists"
+
+      - name: Assert JSON file is valid and non-empty
+        run: |
+          SIZE=$(wc -c < tests/output/bench.json)
+          echo "JSON file size: $SIZE bytes"
+          if [ "$SIZE" -lt 10 ]; then
+            echo "FAIL: JSON file is too small (likely empty or invalid)"
+            exit 1
+          fi
+          # Check it looks like JSON
+          head -c 200 tests/output/bench.json
+          echo ""
+          echo "PASS: JSON file is non-empty"

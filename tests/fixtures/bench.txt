@@ -1,0 +1,11 @@
+goos: linux
+goarch: amd64
+pkg: example
+BenchmarkAdd/small-8         	1000000000	         0.2500 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAdd/medium-8        	 500000000	         0.5000 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAdd/large-8         	 100000000	         2.5000 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMul/small-8         	1000000000	         0.3000 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMul/medium-8        	 500000000	         0.6000 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMul/large-8         	 100000000	         3.0000 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	example	1.234s

@@ -1,0 +1,79 @@
+name: Test bench-file with both JSON and HTML outputs
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          bench-file: tests/fixtures/bench.txt
+          name: "FullBenchmarks"
+          description: "Full test with all options"
+          tag: "test-tag"
+          group-pattern: "x"
+          scale: "linear"
+          sort: "asc"
+          mem-unit: "B"
+          time-unit: "ns"
+          charts: "bar,line,pie"
+          show-labels: "true"
+          output-json: tests/output/full-bench.json
+          output-html: tests/output/full-bench.html
+
+      - name: Assert JSON output path is set
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: output-file-json is empty"
+            exit 1
+          fi
+          echo "PASS: output-file-json=$ACTUAL"
+
+      - name: Assert HTML output path is set
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: output-file-html is empty"
+            exit 1
+          fi
+          echo "PASS: output-file-html=$ACTUAL"
+
+      - name: Assert JSON file exists and is valid
+        run: |
+          if [ ! -f "tests/output/full-bench.json" ]; then
+            echo "FAIL: JSON output file not found"
+            exit 1
+          fi
+          SIZE=$(wc -c < tests/output/full-bench.json)
+          echo "JSON file size: $SIZE bytes"
+          if [ "$SIZE" -lt 10 ]; then
+            echo "FAIL: JSON file is too small"
+            exit 1
+          fi
+          echo "PASS: JSON file exists and is non-empty"
+
+      - name: Assert HTML file exists and is valid
+        run: |
+          if [ ! -f "tests/output/full-bench.html" ]; then
+            echo "FAIL: HTML output file not found"
+            exit 1
+          fi
+          SIZE=$(wc -c < tests/output/full-bench.html)
+          echo "HTML file size: $SIZE bytes"
+          if [ "$SIZE" -lt 100 ]; then
+            echo "FAIL: HTML file is too small"
+            exit 1
+          fi
+          if ! grep -qi "<html" tests/output/full-bench.html; then
+            echo "FAIL: HTML file does not contain <html tag"
+            exit 1
+          fi
+          echo "PASS: HTML file exists and is valid"

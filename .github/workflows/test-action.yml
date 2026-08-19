@@ -1,0 +1,52 @@
+name: test-action
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stateless:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Run action (stateless)
+        uses: ./
+        with:
+          bench-file: examples/bench/hash.txt
+          output-html: index.html
+
+  stateful:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Generate previous JSON
+        uses: ./
+        with:
+          name: Hash
+          bench-file: examples/bench/hash.txt
+          output-json: results/prev/hash.json
+
+      - name: Run action (stateful)
+        uses: ./
+        with:
+          name: HTTP Frameworks Comparisons
+          group-pattern: x_n
+          sort: asc
+          bench-file: examples/bench/http-routing.txt
+          merge-dir: results/prev
+          output-html: index.html
+          output-json: results/bench.json

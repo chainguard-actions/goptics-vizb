@@ -1,0 +1,50 @@
+name: Test bench-file with HTML output
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          bench-file: tests/fixtures/bench.txt
+          name: "HTMLBenchmarks"
+          charts: "bar,line"
+          output-html: tests/output/bench.html
+
+      - name: Assert HTML output path is set
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: output-file-html is empty"
+            exit 1
+          fi
+          echo "PASS: output-file-html=$ACTUAL"
+
+      - name: Assert HTML file exists
+        run: |
+          if [ ! -f "tests/output/bench.html" ]; then
+            echo "FAIL: HTML output file not found at tests/output/bench.html"
+            exit 1
+          fi
+          echo "PASS: HTML file exists"
+
+      - name: Assert HTML file contains expected content
+        run: |
+          SIZE=$(wc -c < tests/output/bench.html)
+          echo "HTML file size: $SIZE bytes"
+          if [ "$SIZE" -lt 100 ]; then
+            echo "FAIL: HTML file is too small (likely empty or invalid)"
+            exit 1
+          fi
+          # Check it looks like HTML
+          if ! grep -qi "<html" tests/output/bench.html; then
+            echo "FAIL: HTML file does not contain <html tag"
+            exit 1
+          fi
+          echo "PASS: HTML file is valid"
