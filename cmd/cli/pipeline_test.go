@@ -1,0 +1,1535 @@
+package cli
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	internal_charts "github.com/goptics/vizb/internal/charts"
+	barchart "github.com/goptics/vizb/internal/charts/bar"
+	linechart "github.com/goptics/vizb/internal/charts/line"
+	scatterchart "github.com/goptics/vizb/internal/charts/scatter"
+	"github.com/goptics/vizb/pkg/parser"
+	_ "github.com/goptics/vizb/pkg/parser/csv"
+	"github.com/goptics/vizb/pkg/template"
+	"github.com/goptics/vizb/shared"
+	"github.com/goptics/vizb/testutil"
+	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/suite"
+)
+
+// PipelineSuite covers the linear pipeline internals and RunLinear end-to-end.
+// The "go" parser is registered transitively via pipeline.go's goparser import.
+type PipelineSuite struct {
+	suite.Suite
+	restoreOsExit func()
+}
+
+func (s *PipelineSuite) SetupTest() {
+	s.restoreOsExit, _ = testutil.TrapOsExitPanic(s.T())
+}
+
+func (s *PipelineSuite) TearDownTest() {
+	s.restoreOsExit()
+}
+
+func (s *PipelineSuite) writeFile(name, content string) string {
+	path := filepath.Join(s.T().TempDir(), name)
+	s.Require().NoError(os.WriteFile(path, []byte(content), 0644))
+	return path
+}
+
+func (s *PipelineSuite) TestApplyJSONPathEnvelope() {
+	envelope := s.writeFile("env.json", `{"data":[{"impl":"a","ops":120},{"impl":"b","ops":80}]}`)
+
+	extracted := applyJSONPath(envelope, ".data")
+	s.FileExists(extracted)
+
+	cfg := parser.Config{GroupPattern: "x", Group: []string{"impl"}, JSONPath: ".data"}
+	results, _, _ := prepareData(extracted, "json", cfg)
+	s.Len(results, 2)
+	s.ElementsMatch([]string{"a", "b"}, []string{results[0].XAxis, results[1].XAxis})
+}
+
+func (s *PipelineSuite) TestPrepareDataReadsGoJSONEventsDirectly() {
+	input := s.writeFile("bench.json", `{"Action":"run","Test":"BenchmarkExample"}
+{"Action":"output","Output":"BenchmarkExample-8 100 1234 ns/op\n"}
+{"Action":"pass","Test":"BenchmarkExample"}`)
+
+	results, _, _ := prepareData(input, "go", parser.Config{
+		GroupPattern: "y",
+		TimeUnit:     "ns",
+	})
+
+	s.Require().Len(results, 1)
+	s.Equal("Example", results[0].YAxis)
+}
+
+func (s *PipelineSuite) TestGoBenchmarkMetadataPreservesDatasetWireFormat() {
+	input := s.writeFile("bench.txt", strings.Join([]string{
+		"goos: linux",
+		"goarch: amd64",
+		"pkg: example.com/cli",
+		"cpu: CLI CPU",
+		"BenchmarkExample-8 100 1234 ns/op",
+	}, "\n"))
+
+	results, cfg, system := prepareData(input, "go", parser.Config{
+		GroupPattern: "y",
+		TimeUnit:     "ns",
+	})
+	dataset := assembleDataset(results, RunMeta{Name: "CLI", Parser: "go"}, nil, cfg, system)
+	encoded, err := json.Marshal(dataset)
+
+	s.Require().NoError(err)
+	var wire struct {
+		Meta json.RawMessage `json:"meta"`
+	}
+	s.Require().NoError(json.Unmarshal(encoded, &wire))
+	s.JSONEq(`{
+		"cpu": {"name": "CLI CPU", "cores": 8},
+		"os": "linux",
+		"arch": "amd64",
+		"pkg": "example.com/cli"
+	}`, string(wire.Meta))
+}
+
+func (s *PipelineSuite) TestPrepareDataWarnsJSONPathIgnoredForNonJSONParser() {
+	benchFile := s.writeFile("valid.txt", `BenchmarkExample-8    1000000    1234 ns/op`)
+	cfg := parser.Config{GroupPattern: "y", TimeUnit: "ns", MemUnit: "B", JSONPath: ".data"}
+
+	errOut := testutil.CaptureStderr(func() {
+		results, _, _ := prepareData(benchFile, "go", cfg)
+		s.NotEmpty(results)
+	})
+	s.Contains(errOut, "--json-path is only supported for the json parser")
+}
+
+func (s *PipelineSuite) TestPrepareDataWarnsSelectIgnoredForGoParser() {
+	benchFile := s.writeFile("valid.txt", `BenchmarkExample-8    1000000    1234 ns/op    1000 B/op    10 allocs/op`)
+	cfg := parser.Config{
+		GroupPattern: "y",
+		TimeUnit:     "ns",
+		MemUnit:      "B",
+		Select:       []parser.ColumnSpec{{Source: "price"}},
+	}
+
+	errOut := testutil.CaptureStderr(func() {
+		results, _, _ := prepareData(benchFile, "go", cfg)
+		s.NotEmpty(results)
+	})
+	s.Contains(errOut, "--select is only supported for csv/json parsers")
+}
+
+func (s *PipelineSuite) TestPrepareData() {
+	cfg := parser.Config{GroupPattern: "y", TimeUnit: "ns", MemUnit: "B"}
+
+	s.Run("valid benchmark results", func() {
+		benchFile := s.writeFile("valid.txt", `BenchmarkExample-8    1000000    1234 ns/op    1000 B/op    10 allocs/op
+BenchmarkAnother-8    2000000    2345 ns/op    2000 B/op    20 allocs/op`)
+
+		results, _, _ := prepareData(benchFile, "go", cfg)
+		s.NotEmpty(results)
+	})
+
+	s.Run("empty results call OsExit", func() {
+		restore, exitCalled := testutil.TrapOsExitPanic(s.T())
+		defer restore()
+		emptyFile := s.writeFile("empty.txt", "")
+		s.Panics(func() { prepareData(emptyFile, "go", cfg) })
+		s.True(*exitCalled)
+	})
+
+	s.Run("missing input calls OsExit at CLI boundary", func() {
+		restore, exitCalled := testutil.TrapOsExitPanic(s.T())
+		defer restore()
+		missing := filepath.Join(s.T().TempDir(), "missing.txt")
+		s.Panics(func() { prepareData(missing, "go", cfg) })
+		s.True(*exitCalled)
+	})
+
+	s.Run("parser errors call OsExit at CLI boundary", func() {
+		benchFile := s.writeFile("invalid-filter.txt", `BenchmarkExample 100 123 ns/op`)
+		invalidCfg := cfg
+		invalidCfg.Filter = "["
+
+		s.Panics(func() { prepareData(benchFile, "go", invalidCfg) })
+	})
+}
+
+func (s *PipelineSuite) TestWriteOutput() {
+	dataSet := &shared.Dataset{Data: []shared.DataPoint{
+		{Name: "B1", Stats: []shared.Stat{{Type: "time", Value: shared.F64(1234)}}},
+	}}
+
+	s.Run("HTML output is non-empty", func() {
+		htmlFile := filepath.Join(s.T().TempDir(), "out.html")
+		file, err := os.Create(htmlFile)
+		s.Require().NoError(err)
+		defer file.Close()
+
+		writeOutput(file, []*shared.Dataset{dataSet}, "html")
+		stat, err := file.Stat()
+		s.Require().NoError(err)
+		s.Greater(stat.Size(), int64(0))
+	})
+
+	s.Run("HTML ships heatmap chunk when stat needs correlation", func() {
+		htmlFile := filepath.Join(s.T().TempDir(), "corr.html")
+		file, err := os.Create(htmlFile)
+		s.Require().NoError(err)
+		defer file.Close()
+
+		ds := &shared.Dataset{
+			Settings: []internal_charts.ChartConfig{
+				&barchart.Config{
+					Type: "bar",
+					Stat: &shared.StatConfig{Enabled: true, Math: []string{"correlations"}},
+				},
+			},
+			Data: dataSet.Data,
+		}
+		writeOutput(file, []*shared.Dataset{ds}, "html")
+
+		content, err := os.ReadFile(htmlFile)
+		s.Require().NoError(err)
+		heatRoot := template.VizbChartRoots["heatmap"]
+		s.Require().NotEmpty(heatRoot)
+		s.Contains(string(content), `"`+heatRoot+`"`)
+	})
+
+	s.Run("JSON output round-trips", func() {
+		jsonFile := filepath.Join(s.T().TempDir(), "out.json")
+		file, err := os.Create(jsonFile)
+		s.Require().NoError(err)
+		defer file.Close()
+
+		writeOutput(file, []*shared.Dataset{dataSet}, "json")
+
+		content, err := os.ReadFile(jsonFile)
+		s.Require().NoError(err)
+		var got shared.Dataset
+		s.Require().NoError(json.Unmarshal(content, &got))
+		s.Len(got.Data, 1)
+	})
+
+	s.Run("unknown format writes nothing", func() {
+		invalidFile := filepath.Join(s.T().TempDir(), "out.x")
+		file, err := os.Create(invalidFile)
+		s.Require().NoError(err)
+		defer file.Close()
+
+		writeOutput(file, []*shared.Dataset{dataSet}, "invalid")
+		stat, err := file.Stat()
+		s.Require().NoError(err)
+		s.Equal(int64(0), stat.Size())
+	})
+
+	s.Run("HTML template errors call OsExit at CLI boundary", func() {
+		s.Panics(func() {
+			generateUI([]byte(`[]`), []string{"bar"}, false, false, "[[VIZB")
+		})
+	})
+}
+
+func (s *PipelineSuite) TestCheckTargetFile() {
+	s.Run("existing file does not exit", func() {
+		valid := s.writeFile("valid.txt", "content")
+		s.NotPanics(func() { checkTargetFile(valid) })
+	})
+
+	s.Run("missing file exits", func() {
+		restore, exitCalled := testutil.TrapOsExitPanic(s.T())
+		defer restore()
+		s.Panics(func() { checkTargetFile(filepath.Join(s.T().TempDir(), "nope.txt")) })
+		s.True(*exitCalled)
+	})
+}
+
+func (s *PipelineSuite) TestRunLinearGeneratesOutputFile() {
+	benchFile := s.writeFile("input.txt", `BenchmarkExample-8    1000000    1234 ns/op    1000 B/op    10 allocs/op`)
+
+	meta := RunMeta{Parser: "go"} // no themes → empty Themes (UI default)
+	cfg := parser.Config{GroupPattern: "y", TimeUnit: "ns", MemUnit: "B"}
+	barCfg := &barchart.Config{Type: "bar", Scale: shared.ScaleLinear}
+	configs := []internal_charts.ChartConfig{barCfg}
+
+	s.Run("HTML output", func() {
+		out := filepath.Join(s.T().TempDir(), "out.html")
+		m := meta
+		m.OutputFile = out
+		RunLinear(&cobra.Command{}, []string{benchFile}, m, cfg, configs, false)
+
+		s.FileExists(out)
+		stat, err := os.Stat(out)
+		s.Require().NoError(err)
+		s.Greater(stat.Size(), int64(0))
+	})
+
+	s.Run("JSON output bakes the chart selection", func() {
+		out := filepath.Join(s.T().TempDir(), "out.json")
+		m := meta
+		m.OutputFile = out
+		RunLinear(&cobra.Command{}, []string{benchFile}, m, cfg, configs, false)
+
+		content, err := os.ReadFile(out)
+		s.Require().NoError(err)
+		// No --theme → omit themes (and legacy theme) from new output.
+		s.NotContains(string(content), `"theme"`)
+		s.NotContains(string(content), `"themes"`)
+		var ds shared.Dataset
+		s.Require().NoError(json.Unmarshal(content, &ds))
+		s.Require().Len(ds.Settings, 1)
+		s.Empty(ds.Theme)
+		s.Empty(ds.Themes)
+		s.Equal("bar", ds.Settings[0].ChartType())
+		typed, ok := ds.Settings[0].(*barchart.Config)
+		s.Require().True(ok, "expected *barchart.Config, got %T", ds.Settings[0])
+		s.Equal(shared.ScaleLinear, typed.Scale)
+	})
+}
+
+func (s *PipelineSuite) TestRunLinearPreservesCustomTheme() {
+	benchFile := s.writeFile("input.txt", `BenchmarkExample-8    1000000    1234 ns/op    1000 B/op    10 allocs/op`)
+	meta := RunMeta{Parser: "go", ThemeSpecs: []string{"#f00,#00ff00"}}
+	cfg := parser.Config{GroupPattern: "y", TimeUnit: "ns", MemUnit: "B"}
+	barCfg := &barchart.Config{Type: "bar", Scale: shared.ScaleLinear}
+	out := filepath.Join(s.T().TempDir(), "custom-theme.json")
+	meta.OutputFile = out
+	RunLinear(&cobra.Command{}, []string{benchFile}, meta, cfg, []internal_charts.ChartConfig{barCfg}, false)
+
+	content, err := os.ReadFile(out)
+	s.Require().NoError(err)
+	// New CLI embeds expanded Themes only (no legacy theme string).
+	s.NotContains(string(content), `"theme":`)
+	s.Contains(string(content), `"themes"`)
+	var ds shared.Dataset
+	s.Require().NoError(json.Unmarshal(content, &ds))
+	s.Empty(ds.Theme)
+	s.Require().Len(ds.Themes, 1)
+	s.Equal("custom", ds.Themes[0].Name)
+	s.Equal([]string{"#f00", "#00ff00"}, ds.Themes[0].Colors)
+}
+
+func (s *PipelineSuite) TestChartScaleBagRoundTripsThroughMaterialise() {
+	s.Run("string log", func() {
+		overrides, warnings, err := shared.ParseOverrides(
+			[]string{"line:scale=log"},
+			[]string{"line"},
+			[]shared.Axis{{Key: "x"}, {Key: "y"}},
+		)
+		s.Require().NoError(err)
+		s.Empty(warnings)
+		cfg, err := internal_charts.Materialise("line", nil, overrides["line"])
+		s.Require().NoError(err)
+		typed := cfg.(*linechart.Config)
+		s.Equal(shared.ScaleLog, typed.Scale)
+		raw, err := json.Marshal(typed)
+		s.Require().NoError(err)
+		s.Contains(string(raw), `"scale":"log"`)
+	})
+	s.Run("brace bag", func() {
+		overrides, warnings, err := shared.ParseOverrides(
+			[]string{"line:scale={type=log;axes=x;base=10}"},
+			[]string{"line"},
+			[]shared.Axis{{Key: "x"}, {Key: "y"}},
+		)
+		s.Require().NoError(err)
+		s.Empty(warnings)
+		cfg, err := internal_charts.Materialise("line", nil, overrides["line"])
+		s.Require().NoError(err)
+		typed := cfg.(*linechart.Config)
+		s.Equal("log", typed.Scale.Type)
+		s.Equal([]string{"x"}, typed.Scale.Axes)
+		raw, err := json.Marshal(typed.Scale)
+		s.Require().NoError(err)
+		s.JSONEq(`{"type":"log","axes":["x"],"base":10}`, string(raw))
+	})
+}
+
+func (s *PipelineSuite) TestChartStackOverrideRoundTripsThroughMaterialise() {
+	overrides, warnings, err := shared.ParseOverrides(
+		[]string{"bar:stack"},
+		[]string{"bar"},
+		[]shared.Axis{{Key: "x"}, {Key: "y"}},
+	)
+	s.Require().NoError(err)
+	s.Empty(warnings)
+
+	cfg, err := internal_charts.Materialise("bar", nil, overrides["bar"])
+	s.Require().NoError(err)
+	typed, ok := cfg.(*barchart.Config)
+	s.Require().True(ok, "expected *barchart.Config, got %T", cfg)
+	s.Require().NotNil(typed.Stack)
+	s.True(*typed.Stack)
+}
+
+func (s *PipelineSuite) TestRunSingleChartEmptyConfigs() {
+	dir := s.T().TempDir()
+	out := filepath.Join(dir, "out.json")
+	meta := RunMeta{Parser: "go", OutputFile: out}
+
+	RunSingleChart(&cobra.Command{}, []string{}, meta, parser.Config{GroupPattern: "y", TimeUnit: "ns", MemUnit: "B"}, nil)
+
+	_, err := os.Stat(out)
+	s.True(os.IsNotExist(err), "empty configs should be a no-op (no file written)")
+}
+
+func (s *PipelineSuite) TestRunLinearDatasetPassthrough() {
+	dir := s.T().TempDir()
+	input := filepath.Join(dir, "baked.json")
+	testutil.WriteJSON(s.T(), input, shared.Dataset{
+		Name: "Baked",
+		Settings: []internal_charts.ChartConfig{
+			&linechart.Config{Type: "line", Scale: shared.ScaleLinear},
+		},
+		Data: []shared.DataPoint{{Name: "P1", XAxis: "1", YAxis: "100"}},
+	})
+	out := filepath.Join(dir, "out.json")
+
+	barCfg := &barchart.Config{Type: "bar", Scale: shared.ScaleLog}
+	meta := RunMeta{Parser: "go", OutputFile: out}
+	cfg := parser.Config{GroupPattern: "y", TimeUnit: "ns", MemUnit: "B"}
+
+	oldStdout, oldStderr := os.Stdout, os.Stderr
+	devnull, _ := os.Open(os.DevNull)
+	os.Stdout, os.Stderr = devnull, devnull
+	defer func() { os.Stdout, os.Stderr = oldStdout, oldStderr; devnull.Close() }()
+
+	RunLinear(&cobra.Command{}, []string{input}, meta, cfg, []internal_charts.ChartConfig{barCfg}, true)
+
+	ds := testutil.ReadDataset(s.T(), out)
+	s.Require().Len(ds.Settings, 1)
+	s.Equal("bar", ds.Settings[0].ChartType())
+	typed, ok := ds.Settings[0].(*barchart.Config)
+	s.Require().True(ok)
+	s.Equal(shared.ScaleLog, typed.Scale)
+}
+
+func (s *PipelineSuite) TestRunLinearDatasetPassthroughTitleWarns() {
+	dir := s.T().TempDir()
+	input := filepath.Join(dir, "baked.json")
+	testutil.WriteJSON(s.T(), input, shared.Dataset{Name: "Baked", Data: []shared.DataPoint{{Name: "P1"}}})
+	out := filepath.Join(dir, "out.json")
+
+	errOut := testutil.CaptureStderr(func() {
+		RunLinear(&cobra.Command{}, []string{input}, RunMeta{Title: "Ignored", Parser: "go", OutputFile: out}, parser.Config{}, nil, false)
+	})
+	s.Contains(errOut, "--title only applies")
+}
+
+func (s *PipelineSuite) TestRunLinearPreservesDatasetOnRoot() {
+	dir := s.T().TempDir()
+	input := filepath.Join(dir, "baked.json")
+	testutil.WriteJSON(s.T(), input, shared.Dataset{
+		Name: "Baked",
+		Settings: []internal_charts.ChartConfig{
+			&barchart.Config{Type: "bar", Scale: shared.ScaleLinear},
+			&linechart.Config{Type: "line", Scale: shared.ScaleLog},
+		},
+		Data: []shared.DataPoint{{Name: "P1", XAxis: "1", YAxis: "100"}},
+	})
+	out := filepath.Join(dir, "out.json")
+
+	barCfg := &barchart.Config{Type: "bar", Scale: shared.ScaleLog}
+	meta := RunMeta{Parser: "go", OutputFile: out}
+	cfg := parser.Config{GroupPattern: "y", TimeUnit: "ns", MemUnit: "B"}
+
+	oldStdout, oldStderr := os.Stdout, os.Stderr
+	devnull, _ := os.Open(os.DevNull)
+	os.Stdout, os.Stderr = devnull, devnull
+	defer func() { os.Stdout, os.Stderr = oldStdout, oldStderr; devnull.Close() }()
+
+	RunLinear(&cobra.Command{}, []string{input}, meta, cfg, []internal_charts.ChartConfig{barCfg}, false)
+
+	ds := testutil.ReadDataset(s.T(), out)
+	s.Require().Len(ds.Settings, 2)
+	s.Equal("bar", ds.Settings[0].ChartType())
+	s.Equal("line", ds.Settings[1].ChartType())
+	lineCfg, ok := ds.Settings[1].(*linechart.Config)
+	s.Require().True(ok)
+	s.Equal(shared.ScaleLog, lineCfg.Scale)
+}
+
+func (s *PipelineSuite) TestRunLinearAutoParser() {
+	csvFile := s.writeFile("data.csv", "name,value\na,10\nb,20\n")
+	out := filepath.Join(s.T().TempDir(), "out.json")
+	meta := RunMeta{Parser: "auto", OutputFile: out}
+	cfg := parser.Config{GroupPattern: "x", TimeUnit: "ns", MemUnit: "B"}
+	barCfg := &barchart.Config{Type: "bar", Scale: shared.ScaleLinear}
+
+	oldStdout, oldStderr := os.Stdout, os.Stderr
+	devnull, _ := os.Open(os.DevNull)
+	os.Stdout, os.Stderr = devnull, devnull
+	defer func() { os.Stdout, os.Stderr = oldStdout, oldStderr; devnull.Close() }()
+
+	RunLinear(&cobra.Command{}, []string{csvFile}, meta, cfg, []internal_charts.ChartConfig{barCfg}, false)
+
+	s.FileExists(out)
+}
+
+func (s *PipelineSuite) TestLogCollectionResult() {
+	out := testutil.CaptureStderr(func() {
+		logCollectionResult(12)
+	})
+	s.Contains(out, "Collected")
+	s.Contains(out, "12")
+	s.Contains(out, "benchmark records")
+}
+
+func (s *PipelineSuite) TestLogCollectionResultZeroIsSilent() {
+	out := testutil.CaptureStderr(func() {
+		logCollectionResult(0)
+	})
+	s.Empty(out)
+}
+
+func (s *PipelineSuite) TestWriteStdinPipedInputsLogsCollection() {
+	origStdin := os.Stdin
+	defer func() { os.Stdin = origStdin }()
+
+	stdinFile, err := os.CreateTemp("", "stdin_collect")
+	s.Require().NoError(err)
+	defer os.Remove(stdinFile.Name())
+
+	_, err = stdinFile.WriteString("BenchmarkFoo-8 \t1000\t2000 ns/op\nBenchmarkBar-8 \t1000\t3000 ns/op\n")
+	s.Require().NoError(err)
+	_, err = stdinFile.Seek(0, 0)
+	s.Require().NoError(err)
+	os.Stdin = stdinFile
+
+	outFile := filepath.Join(s.T().TempDir(), "out.txt")
+	out := testutil.CaptureStderr(func() {
+		writeStdinPipedInputs(outFile)
+	})
+	s.Contains(out, "Collected")
+	s.Contains(out, "2")
+	s.Contains(out, "benchmark records")
+}
+
+func (s *PipelineSuite) TestLogAggregationResultCollapsesDuplicates() {
+	cfg := parser.Config{GroupPattern: "x", Group: []string{"region"}}
+	out := testutil.CaptureStderr(func() {
+		logAggregationResult(50000, 1200, cfg)
+	})
+	s.Contains(out, "Aggregated")
+	s.Contains(out, "50000")
+	s.Contains(out, "1200")
+	s.Contains(out, "into")
+	s.NotContains(out, "unique")
+	s.NotContains(out, "Aggregating ")
+}
+
+func (s *PipelineSuite) TestLogAggregationResultAllUnique() {
+	cfg := parser.Config{GroupPattern: "x", Group: []string{"region"}}
+	out := testutil.CaptureStderr(func() {
+		logAggregationResult(3, 3, cfg)
+	})
+	s.Contains(out, "Aggregated")
+	s.Contains(out, "3")
+	s.Contains(out, "unique")
+	s.Contains(out, "by column: region")
+	s.NotContains(out, "into")
+	s.NotContains(out, "Aggregating ")
+}
+
+func (s *PipelineSuite) TestLogAggregationResultEarlyReturnWhenBeforeZero() {
+	cfg := parser.Config{GroupPattern: "x", Group: []string{"region"}}
+	out := testutil.CaptureStderr(func() {
+		logAggregationResult(0, 0, cfg)
+	})
+	s.Empty(out)
+	s.NotContains(out, "Aggregated")
+}
+
+func (s *PipelineSuite) TestPrepareDataAutoValuePreservesMetric() {
+	csvFile := s.writeFile("grid.csv", "x,y,z,value\n0,0,0,4\n0,0,1,3.22\n0,1,0,3.28\n")
+	cfg := parser.Config{AutoGroup: true, ChartTypes: []string{"scatter"}}
+
+	results, effectiveCfg, _ := prepareData(csvFile, "csv", cfg)
+	s.Equal("value", effectiveCfg.MetricColumn)
+	s.Require().Len(results, 3)
+	s.Equal("4", results[0].Metric)
+	s.Equal("3.22", results[1].Metric)
+	s.Equal("3.28", results[2].Metric)
+}
+
+func (s *PipelineSuite) TestPrepareDataAutoGroupSkipsCollapseLogWhenAllUnique() {
+	csvFile := s.writeFile("unique.csv", "region,sells\nWest,10\nEast,20\nNorth,30\n")
+	cfg := parser.Config{AutoGroup: true, GroupPattern: "x", ChartTypes: []string{"bar"}}
+
+	out := testutil.CaptureStderr(func() {
+		results, effectiveCfg, _ := prepareData(csvFile, "csv", cfg)
+		s.Equal([]string{"region"}, effectiveCfg.Group)
+		s.Len(results, 3)
+	})
+	s.Contains(out, "Aggregated")
+	s.Contains(out, "unique")
+	s.NotContains(out, "Aggregating ")
+}
+
+func (s *PipelineSuite) TestFormatAggregationGroup() {
+	tests := []struct {
+		name string
+		cfg  parser.Config
+		want string
+	}{
+		{
+			name: "two columns with name and x dimensions",
+			cfg:  parser.Config{GroupPattern: "name,x", Group: []string{"name", "date"}},
+			want: "by columns: name, date (name: name, x: date)",
+		},
+		{
+			name: "three columns with name x y dimensions",
+			cfg:  parser.Config{GroupPattern: "name,x,y", Group: []string{"region", "product", "month"}},
+			want: "by columns: region, product, month (name: region, x: product, y: month)",
+		},
+		{
+			name: "single column singular phrasing",
+			cfg:  parser.Config{GroupPattern: "x", Group: []string{"name"}},
+			want: "by column: name (x: name)",
+		},
+		{
+			name: "curly axis labels override column names",
+			cfg:  parser.Config{GroupPattern: "y{Region},x{Product}", Group: []string{"region", "product"}},
+			want: "by columns: region, product (y: Region, x: Product)",
+		},
+		{
+			name: "columns only when no group pattern",
+			cfg:  parser.Config{Group: []string{"name", "date"}},
+			want: "by columns: name, date",
+		},
+		{
+			name: "regex axes without labels use key only",
+			cfg:  parser.Config{GroupRegex: `(?P<name>.*)/(?P<x>.*)`, Group: []string{"benchmark"}},
+			want: "by column: benchmark (name, x)",
+		},
+	}
+
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			s.Equal(tt.want, formatAggregationGroup(tt.cfg))
+		})
+	}
+}
+
+func (s *PipelineSuite) TestPrepareDataAutoGroupAggregatesCSV() {
+	csvFile := s.writeFile("auto-grouped.csv", "region,sells\nWest,10\nWest,20\nEast,5\n")
+	cfg := parser.Config{AutoGroup: true, GroupPattern: "x", ChartTypes: []string{"bar"}}
+
+	var results []shared.DataPoint
+	var effectiveCfg parser.Config
+	out := testutil.CaptureStderr(func() {
+		results, effectiveCfg, _ = prepareData(csvFile, "csv", cfg)
+	})
+	s.Contains(out, "Aggregated")
+	s.Equal([]string{"region"}, effectiveCfg.Group)
+
+	s.Len(results, 2)
+	byX := map[string]float64{}
+	for _, dp := range results {
+		s.Require().Len(dp.Stats, 1)
+		byX[dp.XAxis] = *dp.Stats[0].Value
+	}
+	s.Equal(30.0, byX["West"])
+	s.Equal(5.0, byX["East"])
+}
+
+func (s *PipelineSuite) TestPrepareDataAggregatesCSV() {
+	csvFile := s.writeFile("grouped.csv", "name,sells,date\nalpha,10,2024-01\nalpha,20,2024-01\nbeta,5,2025-02\n")
+	cfg := parser.Config{GroupPattern: "name,x", Group: []string{"name", "date"}}
+
+	var results []shared.DataPoint
+	out := testutil.CaptureStderr(func() {
+		results, _, _ = prepareData(csvFile, "csv", cfg)
+	})
+	s.Contains(out, "by columns: name, date (name: name, x: date)")
+
+	s.Len(results, 2)
+	s.Equal("alpha", results[0].Name)
+	s.Equal("2024-01", results[0].XAxis)
+	s.Equal(30.0, *results[0].Stats[0].Value)
+}
+
+// --round re-quantizes after AggregateDataPoints so summed unit prices lose
+// IEEE residue (issue #337). Without Round the sum may still carry dust.
+func (s *PipelineSuite) TestPrepareDataRoundAfterAggregate() {
+	csvFile := s.writeFile("prices.csv", "day,unit_price\nd1,441.71\nd1,141.1\nd1,196.98\n")
+	cfg := parser.Config{
+		GroupPattern: "x",
+		Group:        []string{"day"},
+		Round:        true,
+	}
+
+	results, effectiveCfg, _ := prepareData(csvFile, "csv", cfg)
+	s.True(effectiveCfg.Round)
+	s.Require().Len(results, 1)
+	s.Equal("d1", results[0].XAxis)
+	s.Require().NotEmpty(results[0].Stats)
+	s.Equal(779.79, *results[0].Stats[0].Value)
+}
+
+func (s *PipelineSuite) TestPrepareDataAxesRejectsNonTabularParser() {
+	cfg := parser.Config{Axes: []parser.ColumnSpec{{Source: "x"}, {Source: "y"}}}
+	s.Panics(func() { prepareData("ignored.txt", "go", cfg) })
+}
+
+func (s *PipelineSuite) TestAssembleDatasetSetsID() {
+	results := []shared.DataPoint{{Name: "A", Stats: []shared.Stat{{Type: "time", Value: shared.F64(1)}}}}
+	cfg := parser.Config{AutoGroup: true}
+	ds := assembleDataset(results, RunMeta{Name: "T", ID: "bench-v1", Parser: "go"}, nil, cfg, nil)
+	s.Equal("bench-v1", ds.ID)
+}
+
+func (s *PipelineSuite) TestAssembleDatasetUsesAutoValueAxesFromData() {
+	// Auto-value path: Stats empty + axes populated → value-type axes
+	results := []shared.DataPoint{{XAxis: "100", YAxis: "12", ZAxis: "5", Stats: []shared.Stat{}}}
+	cfg := parser.Config{
+		AutoGroup: true,
+		Axes: []parser.ColumnSpec{
+			{Source: "x", AxisKey: "x"},
+			{Source: "y", AxisKey: "y"},
+			{Source: "z", AxisKey: "z"},
+		},
+	}
+	ds := assembleDataset(results, RunMeta{Name: "T", Parser: "csv"}, nil, cfg, nil)
+
+	s.Len(ds.Axes, 3)
+	for _, ax := range ds.Axes {
+		s.Equal("value", ax.Type)
+	}
+	s.Equal("x", ds.Axes[0].Key)
+	s.Equal("y", ds.Axes[1].Key)
+	s.Equal("z", ds.Axes[2].Key)
+}
+
+func (s *PipelineSuite) TestAssembleDatasetUsesCategoryAxesFromData() {
+	// Auto-group path: Stats populated → category-type x axis (-p x)
+	results := []shared.DataPoint{{XAxis: "US", Stats: []shared.Stat{{Type: "sells", Value: shared.F64(10)}}}}
+	cfg := parser.Config{AutoGroup: true, Group: []string{"region"}, GroupPattern: "x"}
+	ds := assembleDataset(results, RunMeta{Name: "T", Parser: "csv"}, nil, cfg, nil)
+
+	s.Require().Len(ds.Axes, 1)
+	s.Equal("x", ds.Axes[0].Key)
+	s.Equal("region", ds.Axes[0].Label)
+	s.Equal("", ds.Axes[0].Type)
+}
+
+func (s *PipelineSuite) TestAssembleDatasetAutoEnablesVisualMapForValueMetric() {
+	results := []shared.DataPoint{
+		{XAxis: "0", YAxis: "0", ZAxis: "0", Metric: "4", Stats: []shared.Stat{}},
+	}
+	cfg := parser.Config{
+		AutoGroup: true,
+		Axes: []parser.ColumnSpec{
+			{Source: "x", AxisKey: "x"},
+			{Source: "y", AxisKey: "y"},
+			{Source: "z", AxisKey: "z"},
+		},
+	}
+	configs := []internal_charts.ChartConfig{
+		&scatterchart.Config{Type: "scatter"},
+	}
+	ds := assembleDataset(results, RunMeta{Name: "Noise", Parser: "csv"}, configs, cfg, nil)
+
+	s.Require().Len(ds.Settings, 1)
+	sc := ds.Settings[0].(*scatterchart.Config)
+	s.Require().NotNil(sc.ThreeDVisualMap)
+	s.True(*sc.ThreeDVisualMap)
+	s.Require().NotNil(sc.ThreeD)
+	s.True(*sc.ThreeD)
+	s.Require().Len(ds.Axes, 4)
+	s.Equal("metric", ds.Axes[3].Key)
+	s.Equal("value", ds.Axes[3].Label)
+}
+
+func (s *PipelineSuite) TestAssembleDatasetAutoEnables3DForBarAndLine() {
+	results := []shared.DataPoint{
+		{XAxis: "1", YAxis: "2", ZAxis: "3", Stats: []shared.Stat{}},
+	}
+	cfg := parser.Config{
+		AutoGroup: true,
+		Axes: []parser.ColumnSpec{
+			{Source: "x", AxisKey: "x"},
+			{Source: "y", AxisKey: "y"},
+			{Source: "z", AxisKey: "z"},
+		},
+	}
+	configs := []internal_charts.ChartConfig{
+		&barchart.Config{Type: "bar"},
+		&linechart.Config{Type: "line"},
+	}
+	ds := assembleDataset(results, RunMeta{Name: "Grid", Parser: "csv"}, configs, cfg, nil)
+
+	s.Require().Len(ds.Settings, 2)
+	bc := ds.Settings[0].(*barchart.Config)
+	s.Require().NotNil(bc.ThreeD)
+	s.True(*bc.ThreeD)
+	s.Nil(bc.ThreeDVisualMap)
+
+	lc := ds.Settings[1].(*linechart.Config)
+	s.Require().NotNil(lc.ThreeD)
+	s.True(*lc.ThreeD)
+	s.Nil(lc.ThreeDVisualMap)
+}
+
+func (s *PipelineSuite) TestAssembleDatasetAppendMetricAxisFromConfig() {
+	results := []shared.DataPoint{{XAxis: "0", YAxis: "0", ZAxis: "0", Stats: []shared.Stat{}}}
+	cfg := parser.Config{
+		AutoGroup:    true,
+		MetricColumn: "noise",
+		Axes: []parser.ColumnSpec{
+			{Source: "x", AxisKey: "x"},
+			{Source: "y", AxisKey: "y"},
+			{Source: "z", AxisKey: "z"},
+		},
+	}
+	ds := assembleDataset(results, RunMeta{Name: "T", Parser: "csv"}, nil, cfg, nil)
+
+	s.Require().Len(ds.Axes, 4)
+	s.Equal("metric", ds.Axes[3].Key)
+	s.Equal("noise", ds.Axes[3].Label)
+}
+
+func (s *PipelineSuite) TestAssembleDatasetSelectViewMixedAxes() {
+	results := []shared.DataPoint{{XAxis: "Asia", YAxis: "12", Stats: []shared.Stat{}}}
+	cfg := parser.Config{
+		Mode: parser.ModeValue,
+		SelectViews: []parser.SelectView{
+			{Columns: []parser.ColumnSpec{{Source: "region", AxisKey: "x", AxisType: "category"}, {Source: "latency", AxisKey: "y", AxisType: "value"}}},
+		},
+	}
+	ds := assembleDataset(results, RunMeta{Name: "T", Parser: "csv"}, nil, cfg, nil)
+
+	s.Require().Len(ds.Axes, 2)
+	s.Equal("x", ds.Axes[0].Key)
+	s.Equal("", ds.Axes[0].Type)
+	s.Equal("y", ds.Axes[1].Key)
+	s.Equal("value", ds.Axes[1].Type)
+	s.True(ds.PreserveRows)
+}
+
+// TestParseCSVToAssembleDatasetMixedSelect verifies the end-to-end flow
+// ParseCSV → assembleDataset for a solo mixed --select (categorical x + value y).
+// Regression guard: DatasetAxesForSelectView must infer mixed-ness from the
+// parsed DataPoints when a select view has no AxisType annotations, emitting a
+// category x (empty Type) + value y.
+func (s *PipelineSuite) TestParseCSVToAssembleDatasetMixedSelect() {
+	csvFile := s.writeFile("region-metrics.csv",
+		"region,latency,sales\nAsia,12,100\nEurope,8,80\nAmericas,15,120\n")
+	cfg := parser.Config{
+		SelectViews: []parser.SelectView{
+			{Columns: []parser.ColumnSpec{{Source: "region", AxisKey: "x"}, {Source: "latency", AxisKey: "y"}}},
+		},
+	}
+	cfg.Mode = parser.ResolveMode(cfg)
+
+	input, err := os.Open(csvFile)
+	s.Require().NoError(err)
+	defer input.Close()
+	results, effectiveCfg, _, err := parser.Parsers["csv"](input, cfg)
+	s.Require().NoError(err)
+	s.Require().NotEmpty(results)
+
+	ds := assembleDataset(results, RunMeta{Name: "T", Parser: "csv"}, nil, effectiveCfg, nil)
+	s.Require().Len(ds.Axes, 2)
+	s.Equal("x", ds.Axes[0].Key)
+	s.Equal("", ds.Axes[0].Type, "mixed x axis must be category (empty Type)")
+	s.Equal("y", ds.Axes[1].Key)
+	s.Equal("value", ds.Axes[1].Type)
+	s.True(ds.PreserveRows)
+}
+
+func (s *PipelineSuite) TestAssembleDatasetGroupedAxesFromConfig() {
+	results := []shared.DataPoint{{XAxis: "Asia", YAxis: "12", Stats: []shared.Stat{}}}
+	cfg := parser.Config{
+		Axes: []parser.ColumnSpec{
+			{Source: "region", AxisKey: "x", AxisType: "category"},
+			{Source: "latency", AxisKey: "y", AxisType: "value"},
+		},
+	}
+	ds := assembleDataset(results, RunMeta{Parser: "csv"}, nil, cfg, nil)
+	s.Require().Len(ds.Axes, 2)
+	s.Equal("", ds.Axes[0].Type)
+	s.Equal("value", ds.Axes[1].Type)
+}
+
+func (s *PipelineSuite) TestAssembleDatasetSelectAxis() {
+	results := []shared.DataPoint{{XAxis: "1", YAxis: "2", Stats: []shared.Stat{}}}
+	cfg := parser.Config{
+		Mode: parser.ModeValue,
+		SelectViews: []parser.SelectView{
+			{Columns: []parser.ColumnSpec{{Source: "x", AxisKey: "x"}, {Source: "y", AxisKey: "y"}}},
+		},
+	}
+	ds := assembleDataset(results, RunMeta{Parser: "csv"}, nil, cfg, nil)
+	s.Require().Len(ds.Axes, 2)
+	s.Equal("value", ds.Axes[0].Type)
+	s.Equal("value", ds.Axes[1].Type)
+}
+
+func (s *PipelineSuite) TestAssembleDatasetPreservesTheme() {
+	results := []shared.DataPoint{{XAxis: "1", YAxis: "2", Stats: []shared.Stat{}}}
+	cfg := parser.Config{
+		Mode: parser.ModeValue,
+		SelectViews: []parser.SelectView{
+			{Columns: []parser.ColumnSpec{{Source: "x", AxisKey: "x", AxisType: "value"}, {Source: "y", AxisKey: "y", AxisType: "value"}}},
+		},
+	}
+	ds := assembleDataset(results, RunMeta{Name: "T", Parser: "csv", ThemeSpecs: []string{"walden"}}, nil, cfg, nil)
+	s.Empty(ds.Theme)
+	s.Require().Len(ds.Themes, 1)
+	s.Equal("walden", ds.Themes[0].Name)
+	s.NotEmpty(ds.Themes[0].Colors)
+}
+
+func (s *PipelineSuite) TestAssembleDatasetMultipleThemesFirstIsActive() {
+	results := []shared.DataPoint{{XAxis: "1", YAxis: "2", Stats: []shared.Stat{}}}
+	cfg := parser.Config{GroupPattern: "x"}
+	ds := assembleDataset(results, RunMeta{
+		Name:       "T",
+		Parser:     "csv",
+		ThemeSpecs: []string{"westeros", "vintage"},
+	}, nil, cfg, nil)
+	s.Empty(ds.Theme)
+	s.Require().Len(ds.Themes, 2)
+	s.Equal("westeros", ds.Themes[0].Name)
+	s.Equal("vintage", ds.Themes[1].Name)
+}
+
+func (s *PipelineSuite) TestAssembleDatasetSkipsDefaultTheme() {
+	results := []shared.DataPoint{{XAxis: "1", YAxis: "2", Stats: []shared.Stat{}}}
+	cfg := parser.Config{GroupPattern: "x"}
+	ds := assembleDataset(results, RunMeta{
+		Name:       "T",
+		Parser:     "csv",
+		ThemeSpecs: []string{"default", "roma"},
+	}, nil, cfg, nil)
+	s.Empty(ds.Theme)
+	s.Require().Len(ds.Themes, 1)
+	s.Equal("roma", ds.Themes[0].Name)
+}
+
+func (s *PipelineSuite) TestAssembleDatasetEmptyThemesWhenUnset() {
+	results := []shared.DataPoint{{XAxis: "1", YAxis: "2", Stats: []shared.Stat{}}}
+	cfg := parser.Config{GroupPattern: "x"}
+	ds := assembleDataset(results, RunMeta{Name: "T", Parser: "csv"}, nil, cfg, nil)
+	s.Empty(ds.Theme)
+	s.Empty(ds.Themes)
+}
+
+func (s *PipelineSuite) TestAssembleDatasetThemeExpandFailureEmbedsNone() {
+	// Soft validation normally filters bad specs; resolveRunThemes still soft-fails
+	// if invalid specs reach assembleDataset.
+	results := []shared.DataPoint{{XAxis: "1", YAxis: "2", Stats: []shared.Stat{}}}
+	cfg := parser.Config{GroupPattern: "x"}
+	var ds *shared.Dataset
+	out := testutil.CaptureStderr(func() {
+		ds = assembleDataset(results, RunMeta{
+			Name:       "T",
+			Parser:     "csv",
+			ThemeSpecs: []string{"not-a-theme"},
+		}, nil, cfg, nil)
+	})
+	s.Require().NotNil(ds)
+	s.Empty(ds.Theme)
+	s.Empty(ds.Themes)
+	s.Contains(out, "theme expand failed")
+}
+
+func (s *PipelineSuite) TestAssembleDatasetInfersAxesWithoutAxisType() {
+	view := append([]parser.ColumnSpec(nil),
+		parser.ColumnSpec{Source: "region", AxisKey: "x"},
+		parser.ColumnSpec{Source: "latency", AxisKey: "y"},
+	)
+	results := []shared.DataPoint{{XAxis: "Asia", YAxis: "12", Stats: []shared.Stat{}}}
+	cfg := parser.Config{
+		Mode: parser.ModeValue,
+		SelectViews: []parser.SelectView{
+			{Columns: append([]parser.ColumnSpec(nil), view...)},
+		},
+	}
+	ds := assembleDataset(results, RunMeta{Name: "T", Parser: "csv"}, nil, cfg, nil)
+	s.Require().Len(ds.Axes, 2)
+	s.Equal("", ds.Axes[0].Type)
+	s.Equal("value", ds.Axes[1].Type)
+}
+
+func (s *PipelineSuite) TestDatasetNeeds3DPredicate() {
+	// writeOutput uses slices.ContainsFunc(datasets, shared.DatasetNeeds3D).
+	ds := &shared.Dataset{
+		Data: []shared.DataPoint{{XAxis: "1", YAxis: "2", ZAxis: "3"}},
+		Settings: []internal_charts.ChartConfig{
+			&scatterchart.Config{Type: "scatter"},
+		},
+	}
+	s.True(shared.DatasetNeeds3D(ds))
+	s.False(slices.ContainsFunc(([]*shared.Dataset)(nil), shared.DatasetNeeds3D))
+}
+
+func (s *PipelineSuite) TestWriteOutputEmptyDatasets() {
+	file, err := os.Create(filepath.Join(s.T().TempDir(), "empty.html"))
+	s.Require().NoError(err)
+	defer file.Close()
+
+	writeOutput(file, nil, "html")
+	stat, err := file.Stat()
+	s.Require().NoError(err)
+	s.Equal(int64(0), stat.Size())
+}
+
+func (s *PipelineSuite) TestApplyJSONPathInvalidExits() {
+	restore, exitCalled := testutil.TrapOsExitPanic(s.T())
+	defer restore()
+
+	bad := s.writeFile("bad.json", `{"items":[]}`)
+	s.Panics(func() { applyJSONPath(bad, ".missing.path") })
+	s.True(*exitCalled)
+}
+
+func (s *PipelineSuite) TestAssembleDatasetSelectViewValueAxesEnables3D() {
+	results := []shared.DataPoint{
+		{XAxis: "1", YAxis: "2", ZAxis: "3", Stats: []shared.Stat{}},
+	}
+	cfg := parser.Config{
+		Mode: parser.ModeValue,
+		SelectViews: []parser.SelectView{
+			{Columns: []parser.ColumnSpec{{Source: "x", AxisKey: "x", AxisType: "value"}, {Source: "y", AxisKey: "y", AxisType: "value"}, {Source: "z", AxisKey: "z", AxisType: "value"}}},
+		},
+	}
+	configs := []internal_charts.ChartConfig{&scatterchart.Config{Type: "scatter"}}
+	ds := assembleDataset(results, RunMeta{Name: "T", Parser: "csv"}, configs, cfg, nil)
+
+	s.Require().Len(ds.Axes, 3)
+	for _, ax := range ds.Axes {
+		s.Equal("value", ax.Type)
+	}
+	sc := ds.Settings[0].(*scatterchart.Config)
+	s.Require().NotNil(sc.ThreeD)
+	s.True(*sc.ThreeD)
+}
+
+func (s *PipelineSuite) TestAssembleDatasetCategoryAxesSkipAuto3D() {
+	results := []shared.DataPoint{
+		{XAxis: "US", YAxis: "Widget", ZAxis: "Q1", Stats: []shared.Stat{{Type: "sells", Value: shared.F64(10)}}},
+	}
+	cfg := parser.Config{AutoGroup: true}
+	configs := []internal_charts.ChartConfig{
+		&scatterchart.Config{Type: "scatter"},
+	}
+	ds := assembleDataset(results, RunMeta{Name: "Grouped", Parser: "csv"}, configs, cfg, nil)
+
+	sc := ds.Settings[0].(*scatterchart.Config)
+	s.Nil(sc.ThreeD)
+	s.Nil(sc.ThreeDVisualMap)
+}
+
+func (s *PipelineSuite) TestPrepareDataUnknownParserExits() {
+	restore, exitCalled := testutil.TrapOsExitPanic(s.T())
+	defer restore()
+
+	s.Panics(func() {
+		prepareData(s.writeFile("x.csv", "a,b\n1,2"), "nope", parser.Config{})
+	})
+	s.True(*exitCalled)
+}
+
+func (s *PipelineSuite) TestResolveInputStdin() {
+	origStdin := os.Stdin
+	defer func() { os.Stdin = origStdin }()
+
+	oldStdout, oldStderr := os.Stdout, os.Stderr
+	devnull, _ := os.Open(os.DevNull)
+	os.Stdout, os.Stderr = devnull, devnull
+	defer func() { os.Stdout, os.Stderr = oldStdout, oldStderr; devnull.Close() }()
+
+	stdinFile, err := os.CreateTemp("", "stdin_linear")
+	s.Require().NoError(err)
+	defer os.Remove(stdinFile.Name())
+
+	s.Require().NoError(os.WriteFile(stdinFile.Name(), []byte(
+		"BenchmarkExample-8    1000000    1234 ns/op    1000 B/op    10 allocs/op\n",
+	), 0644))
+	f, err := os.Open(stdinFile.Name())
+	s.Require().NoError(err)
+	os.Stdin = f
+	defer f.Close()
+
+	out := filepath.Join(s.T().TempDir(), "out.json")
+	meta := RunMeta{Parser: "go", OutputFile: out}
+	cfg := parser.Config{GroupPattern: "y", TimeUnit: "ns", MemUnit: "B"}
+	barCfg := &barchart.Config{Type: "bar", Scale: shared.ScaleLinear}
+
+	RunLinear(&cobra.Command{}, nil, meta, cfg, []internal_charts.ChartConfig{barCfg}, false)
+	s.FileExists(out)
+}
+
+func (s *PipelineSuite) TestResolveInputNoArgsShowsHelp() {
+	origStdin := os.Stdin
+	defer func() { os.Stdin = origStdin }()
+
+	// /dev/null is a character device → not treated as piped stdin.
+	devnull, err := os.Open(os.DevNull)
+	s.Require().NoError(err)
+	os.Stdin = devnull
+	defer devnull.Close()
+
+	restore, exitCalled := testutil.TrapOsExitPanic(s.T())
+	defer restore()
+
+	cmd := &cobra.Command{Use: "test"}
+	s.Panics(func() { resolveInput(cmd, nil) })
+	s.True(*exitCalled)
+}
+
+func (s *PipelineSuite) TestWriteStdinPipedInputsNoTrailingNewline() {
+	origStdin := os.Stdin
+	defer func() { os.Stdin = origStdin }()
+
+	oldStdout, oldStderr := os.Stdout, os.Stderr
+	devnull, _ := os.Open(os.DevNull)
+	os.Stdout, os.Stderr = devnull, devnull
+	defer func() { os.Stdout, os.Stderr = oldStdout, oldStderr; devnull.Close() }()
+
+	stdinFile, err := os.CreateTemp("", "stdin_no_nl")
+	s.Require().NoError(err)
+	defer os.Remove(stdinFile.Name())
+
+	s.Require().NoError(os.WriteFile(stdinFile.Name(), []byte(`{"Action":"run"}`), 0644))
+	f, err := os.Open(stdinFile.Name())
+	s.Require().NoError(err)
+	os.Stdin = f
+	defer f.Close()
+
+	out := filepath.Join(s.T().TempDir(), "out.txt")
+	writeStdinPipedInputs(out)
+
+	content, err := os.ReadFile(out)
+	s.Require().NoError(err)
+	s.Equal(`{"Action":"run"}`, string(content))
+}
+
+func (s *PipelineSuite) TestWriteStdinPipedInputs() {
+	origStdin := os.Stdin
+	defer func() { os.Stdin = origStdin }()
+
+	// Silence the progress bar output during the test.
+	oldStdout, oldStderr := os.Stdout, os.Stderr
+	devnull, _ := os.Open(os.DevNull)
+	os.Stdout, os.Stderr = devnull, devnull
+	defer func() { os.Stdout, os.Stderr = oldStdout, oldStderr; devnull.Close() }()
+
+	stdinFile, err := os.CreateTemp("", "stdin_test")
+	s.Require().NoError(err)
+	defer os.Remove(stdinFile.Name())
+
+	for _, line := range []string{
+		`{"Action":"run","Test":"BenchmarkExample"}`,
+		"BenchmarkAnotherTest-8 \t1000\t2000 ns/op",
+	} {
+		_, err := stdinFile.WriteString(line + "\n")
+		s.Require().NoError(err)
+	}
+	_, err = stdinFile.Seek(0, 0)
+	s.Require().NoError(err)
+	os.Stdin = stdinFile
+
+	out := filepath.Join(s.T().TempDir(), "out.txt")
+	writeStdinPipedInputs(out)
+
+	content, err := os.ReadFile(out)
+	s.Require().NoError(err)
+	s.Contains(string(content), "BenchmarkAnotherTest")
+}
+
+func (s *PipelineSuite) TestSelectViewDatasetName() {
+	view := []parser.ColumnSpec{
+		{Source: "region", AxisKey: "x"},
+		{Source: "latency", AxisKey: "y"},
+	}
+	s.Equal("region × latency", parser.SelectViewDatasetName(view, 0))
+}
+
+func (s *PipelineSuite) TestPrepareDataMultiSelectStatMode() {
+	csvFile := s.writeFile("multi.csv", "region,latency,sales,product\nAsia,12,100,Widget\nEurope,8,80,Gadget\n")
+	cfg := parser.Config{
+		SelectViews: []parser.SelectView{
+			{Columns: []parser.ColumnSpec{{Source: "region", AxisKey: "x"}, {Source: "latency", AxisKey: "y"}}},
+			{Columns: []parser.ColumnSpec{{Source: "product", AxisKey: "x"}, {Source: "sales", AxisKey: "y"}}},
+		},
+	}
+
+	data, _, _ := prepareData(csvFile, "csv", cfg)
+	s.Len(data, 4) // 2 rows × 2 views (different dim columns → not merged)
+	s.Equal("Asia", data[0].XAxis)
+	s.Require().Len(data[0].Stats, 1)
+	s.Equal("latency by region", data[0].Stats[0].Type)
+	s.Equal(12.0, *data[0].Stats[0].Value)
+	s.Equal("Widget", data[1].XAxis)
+	s.Equal("sales by product", data[1].Stats[0].Type)
+	s.Equal(100.0, *data[1].Stats[0].Value)
+}
+
+func (s *PipelineSuite) TestPrepareDataCollapsesSharedDimMultiSelect() {
+	csvFile := s.writeFile("sales.csv", "region,tax,amount\nWest,10,100\nWest,20,200\nEast,3,30\n")
+	cfg := parser.Config{
+		SelectViews: []parser.SelectView{
+			{TypeLabel: "Tax by Region 1", Columns: []parser.ColumnSpec{{Source: "region"}, {Source: "tax"}}},
+			{TypeLabel: "Amount by Region 2", Columns: []parser.ColumnSpec{{Source: "region"}, {Source: "amount"}}},
+		},
+	}
+
+	data, _, _ := prepareData(csvFile, "csv", cfg)
+	s.Len(data, 2)
+	s.Equal("West", data[0].XAxis)
+	s.Require().Len(data[0].Stats, 4)
+	s.Equal("Tax by Region 1", data[0].Stats[0].Type)
+	s.Equal(10.0, *data[0].Stats[0].Value)
+	s.Equal("Amount by Region 2", data[0].Stats[1].Type)
+	s.Equal(100.0, *data[0].Stats[1].Value)
+	s.Equal("Tax by Region 1", data[0].Stats[2].Type)
+	s.Equal(20.0, *data[0].Stats[2].Value)
+	s.Equal("Amount by Region 2", data[0].Stats[3].Type)
+	s.Equal(200.0, *data[0].Stats[3].Value)
+}
+
+func (s *PipelineSuite) TestWriteOutputMultiDatasetJSON() {
+	ds1 := &shared.Dataset{Name: "View A", Data: []shared.DataPoint{{XAxis: "1", YAxis: "2"}}}
+	ds2 := &shared.Dataset{Name: "View B", Data: []shared.DataPoint{{XAxis: "3", YAxis: "4"}}}
+
+	jsonFile := filepath.Join(s.T().TempDir(), "out.json")
+	file, err := os.Create(jsonFile)
+	s.Require().NoError(err)
+	defer file.Close()
+
+	writeOutput(file, []*shared.Dataset{ds1, ds2}, "json")
+
+	content, err := os.ReadFile(jsonFile)
+	s.Require().NoError(err)
+	var got []shared.Dataset
+	s.Require().NoError(json.Unmarshal(content, &got))
+	s.Len(got, 2)
+	s.Equal("View A", got[0].Name)
+	s.Equal("View B", got[1].Name)
+}
+
+func (s *PipelineSuite) TestAssembleDatasetGroupedClearsPreserveRows() {
+	results := []shared.DataPoint{
+		{XAxis: "West", YAxis: "Mechanical", Stats: []shared.Stat{{Type: "amount", Value: shared.F64(10)}}},
+		{XAxis: "West", YAxis: "Hardware", Stats: []shared.Stat{{Type: "amount", Value: shared.F64(20)}}},
+	}
+	cfg := parser.Config{
+		GroupPattern: "x,y",
+		Group:        []string{"region", "category"},
+	}
+	ds := assembleDataset(results, RunMeta{Name: "T", Parser: "csv"}, nil, cfg, nil)
+	s.False(ds.PreserveRows)
+}
+
+func (s *PipelineSuite) TestPrepareDataColAxisExpandsOntoX() {
+	csvFile := s.writeFile("concurrency.csv",
+		"load,default,chi\n100,3103.62,3103.73\n1000,32423.67,32421.28\n")
+	cfg, err := parser.ResolveGroupConfig(parser.Config{
+		GroupPattern: "y",
+		Group:        []string{"load"},
+		ColAxis:      "x",
+	})
+	s.Require().NoError(err)
+
+	results, effective, _ := prepareData(csvFile, "csv", cfg)
+	s.Equal("x", effective.ColAxis)
+	// 2 load rows × 2 frameworks
+	s.Require().Len(results, 4)
+
+	types := map[string]struct{}{}
+	xVals := map[string]struct{}{}
+	yVals := map[string]struct{}{}
+	for _, dp := range results {
+		s.Require().Len(dp.Stats, 1)
+		s.Empty(dp.Stats[0].Type)
+		types[dp.Stats[0].Type] = struct{}{}
+		xVals[dp.XAxis] = struct{}{}
+		yVals[dp.YAxis] = struct{}{}
+	}
+	s.Len(types, 1) // only empty type
+	s.ElementsMatch([]string{"default", "chi"}, keysOf(xVals))
+	s.ElementsMatch([]string{"100", "1000"}, keysOf(yVals))
+
+	ds := assembleDataset(results, RunMeta{Name: "HTTP frameworks", Parser: "csv"}, nil, effective, nil)
+	s.ElementsMatch([]string{"x", "y"}, axisKeyList(ds.Axes))
+}
+
+func (s *PipelineSuite) TestPrepareDataColAxisAppliesTitle() {
+	csvFile := s.writeFile("concurrency.csv", "load,default,chi\n100,1,2\n")
+	cfg, err := parser.ResolveGroupConfig(parser.Config{GroupPattern: "y", Group: []string{"load"}, ColAxis: "x"})
+	s.Require().NoError(err)
+
+	results, _, _ := prepareData(csvFile, "csv", cfg, "Framework throughput")
+	for _, dp := range results {
+		s.Require().Len(dp.Stats, 1)
+		s.Equal("Framework throughput", dp.Stats[0].Type)
+	}
+}
+
+func (s *PipelineSuite) TestRunLinearColAxisTitleKeepsDatasetName() {
+	csvFile := s.writeFile("concurrency.csv", "load,default,chi\n100,1,2\n")
+	out := filepath.Join(s.T().TempDir(), "out.json")
+	meta := RunMeta{Name: "Q1 release", Title: "Framework throughput", Parser: "csv", OutputFile: out}
+	cfg, err := parser.ResolveGroupConfig(parser.Config{GroupPattern: "y", Group: []string{"load"}, ColAxis: "x"})
+	s.Require().NoError(err)
+
+	RunLinear(&cobra.Command{}, []string{csvFile}, meta, cfg, []internal_charts.ChartConfig{&barchart.Config{Type: "bar", Scale: shared.ScaleLinear}}, false)
+
+	ds := testutil.ReadDataset(s.T(), out)
+	s.Equal("Q1 release", ds.Name)
+	for _, dp := range ds.Data {
+		s.Require().Len(dp.Stats, 1)
+		s.Equal("Framework throughput", dp.Stats[0].Type)
+	}
+}
+
+func (s *PipelineSuite) TestPrepareDataTitleWithoutColAxisWarnsAndKeepsTypes() {
+	csvFile := s.writeFile("wide.csv", "load,default,chi\n100,1,2\n")
+	cfg, err := parser.ResolveGroupConfig(parser.Config{GroupPattern: "y", Group: []string{"load"}})
+	s.Require().NoError(err)
+
+	var results []shared.DataPoint
+	errOut := testutil.CaptureStderr(func() {
+		results, _, _ = prepareData(csvFile, "csv", cfg, "Framework throughput")
+	})
+	s.Contains(errOut, "--title only applies")
+	s.NotEmpty(results[0].Stats[0].Type)
+}
+
+func (s *PipelineSuite) TestPrepareDataColAxisSameAxisFatals() {
+	csvFile := s.writeFile("concurrency.csv",
+		"load,default,chi\n100,1,2\n")
+	cfg, err := parser.ResolveGroupConfig(parser.Config{
+		GroupPattern: "x",
+		Group:        []string{"load"},
+		ColAxis:      "x",
+	})
+	s.Require().NoError(err)
+
+	s.Panics(func() {
+		prepareData(csvFile, "csv", cfg)
+	})
+}
+
+func (s *PipelineSuite) TestPrepareDataColAxisWithoutGroupWarnsAndSkips() {
+	// No -g and AutoGroup off → no Group; col-axis must warn+skip (multi-stat flat).
+	csvFile := s.writeFile("wide.csv", "a,b,c\n1,2,3\n")
+	cfg := parser.Config{ColAxis: "x"}
+
+	var results []shared.DataPoint
+	var effective parser.Config
+	errOut := testutil.CaptureStderr(func() {
+		results, effective, _ = prepareData(csvFile, "csv", cfg, "Framework throughput")
+	})
+	s.Contains(errOut, "--col-axis requires grouping")
+	s.Contains(errOut, "--title ignored")
+	s.Empty(effective.ColAxis) // cleared on skip
+	s.NotEmpty(results)
+	// Unexpanded: still multi-stat column types, not empty-type long form
+	s.Require().NotEmpty(results[0].Stats)
+	s.NotEmpty(results[0].Stats[0].Type)
+}
+
+func (s *PipelineSuite) TestPrepareDataColAxisNonTabularWarns() {
+	benchFile := s.writeFile("valid.txt", `BenchmarkExample-8    1000000    1234 ns/op`)
+	cfg := parser.Config{
+		ColAxis:      "x",
+		GroupPattern: "y",
+		TimeUnit:     "ns",
+		MemUnit:      "B",
+	}
+
+	var effective parser.Config
+	errOut := testutil.CaptureStderr(func() {
+		_, effective, _ = prepareData(benchFile, "go", cfg)
+	})
+	s.Contains(errOut, "only supported for csv/json")
+	s.Empty(effective.ColAxis)
+}
+
+func (s *PipelineSuite) TestPrepareDataColAxisSelectModeSkips() {
+	// Solo value --select (not multi-stat group path): warn+skip.
+	csvFile := s.writeFile("vals.csv", "x,y\n1,2\n3,4\n")
+	cfg := parser.Config{
+		ColAxis: "z",
+		SelectViews: []parser.SelectView{
+			{Columns: []parser.ColumnSpec{
+				{Source: "x", AxisKey: "x"},
+				{Source: "y", AxisKey: "y"},
+			}},
+		},
+	}
+	cfg.Mode = parser.ResolveMode(cfg)
+
+	var results []shared.DataPoint
+	var effective parser.Config
+	errOut := testutil.CaptureStderr(func() {
+		results, effective, _ = prepareData(csvFile, "csv", cfg)
+	})
+	s.Contains(errOut, "requires grouped multi-column stats")
+	s.Empty(effective.ColAxis)
+	s.NotEmpty(results)
+}
+
+func (s *PipelineSuite) TestPrepareDataMultiStatColAxisAndTitleWarnsAndKeepsSelectTitles() {
+	csvFile := s.writeFile("stats.csv", "region,latency,sales\nWest,10,100\n")
+	cfg := parser.Config{ColAxis: "x", SelectViews: []parser.SelectView{
+		{Columns: []parser.ColumnSpec{{Source: "region", AxisKey: "x"}, {Source: "latency", AxisKey: "y"}}, TypeLabel: "Latency by Region"},
+		{Columns: []parser.ColumnSpec{{Source: "region", AxisKey: "x"}, {Source: "sales", AxisKey: "y"}}, TypeLabel: "Sales by Region"},
+	}}
+	cfg.Mode = parser.ResolveMode(cfg)
+
+	var results []shared.DataPoint
+	var effective parser.Config
+	errOut := testutil.CaptureStderr(func() {
+		results, effective, _ = prepareData(csvFile, "csv", cfg, "Ignored title")
+	})
+	s.Contains(errOut, "--col-axis requires grouped multi-column stats")
+	s.Contains(errOut, "--title ignored")
+	s.Empty(effective.ColAxis)
+	s.Require().Len(results, 1)
+	s.ElementsMatch([]string{"Latency by Region", "Sales by Region"}, []string{results[0].Stats[0].Type, results[0].Stats[1].Type})
+}
+
+func (s *PipelineSuite) TestPrepareDataColAxisZWithoutXYFatals() {
+	csvFile := s.writeFile("concurrency.csv", "load,default,chi\n100,1,2\n")
+	cfg, err := parser.ResolveGroupConfig(parser.Config{
+		GroupPattern: "x",
+		Group:        []string{"load"},
+		ColAxis:      "z",
+	})
+	s.Require().NoError(err)
+
+	s.Panics(func() {
+		prepareData(csvFile, "csv", cfg)
+	})
+}
+
+func (s *PipelineSuite) TestPrepareDataColAxisZWithXY() {
+	csvFile := s.writeFile("grid.csv",
+		"region,load,default,chi\nAsia,100,1,2\nEurope,100,3,4\n")
+	cfg, err := parser.ResolveGroupConfig(parser.Config{
+		GroupPattern: "x,y",
+		Group:        []string{"region", "load"},
+		ColAxis:      "z",
+	})
+	s.Require().NoError(err)
+
+	results, effective, _ := prepareData(csvFile, "csv", cfg)
+	s.Equal("z", effective.ColAxis)
+	s.Require().NotEmpty(results)
+	zVals := map[string]struct{}{}
+	for _, dp := range results {
+		s.Require().Len(dp.Stats, 1)
+		s.Empty(dp.Stats[0].Type)
+		zVals[dp.ZAxis] = struct{}{}
+	}
+	s.ElementsMatch([]string{"default", "chi"}, keysOf(zVals))
+
+	ds := assembleDataset(results, RunMeta{Name: "T", Parser: "csv"}, nil, effective, nil)
+	s.Contains(axisKeyList(ds.Axes), "z")
+}
+
+func keysOf(m map[string]struct{}) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+func axisKeyList(axes []shared.Axis) []string {
+	keys := make([]string, len(axes))
+	for i, a := range axes {
+		keys[i] = a.Key
+	}
+	return keys
+}
+
+func (s *PipelineSuite) TestAssembleDatasetMultiSelectStatAxesLabel() {
+	results := []shared.DataPoint{{XAxis: "West", Stats: []shared.Stat{{Type: "tax by region", Value: shared.F64(1)}}}}
+	cfg := parser.Config{
+		Mode: parser.ModeMultiStat,
+		SelectViews: []parser.SelectView{
+			{Columns: []parser.ColumnSpec{{Source: "region", Label: "Region", AxisKey: "x"}, {Source: "tax", AxisKey: "y"}}},
+			{Columns: []parser.ColumnSpec{{Source: "region", Label: "Region", AxisKey: "x"}, {Source: "amount", AxisKey: "y"}}},
+		},
+	}
+	ds := assembleDataset(results, RunMeta{Parser: "csv"}, nil, cfg, nil)
+	s.Require().Len(ds.Axes, 1)
+	s.Equal("x", ds.Axes[0].Key)
+	s.Equal("Region", ds.Axes[0].Label)
+	s.True(ds.PreserveRows)
+}
+
+func (s *PipelineSuite) TestRunLinearMultiSelectProducesSingleDatasetWithStats() {
+	csvFile := s.writeFile("sales.csv", "region,latency,sales\nAsia,12,100\nEurope,8,80\n")
+	out := filepath.Join(s.T().TempDir(), "out.html")
+	cfg := parser.Config{
+		SelectViews: []parser.SelectView{
+			{Columns: []parser.ColumnSpec{{Source: "region", AxisKey: "x"}, {Source: "latency", AxisKey: "y"}}},
+			{Columns: []parser.ColumnSpec{{Source: "region", AxisKey: "x"}, {Source: "sales", AxisKey: "y"}}},
+		},
+	}
+	scatterCfg := &scatterchart.Config{Type: "scatter", Scale: shared.ScaleLinear}
+	meta := RunMeta{Parser: "csv", OutputFile: out}
+
+	oldStdout, oldStderr := os.Stdout, os.Stderr
+	devnull, _ := os.Open(os.DevNull)
+	os.Stdout, os.Stderr = devnull, devnull
+	defer func() { os.Stdout, os.Stderr = oldStdout, oldStderr; devnull.Close() }()
+
+	RunLinear(&cobra.Command{}, []string{csvFile}, meta, cfg, []internal_charts.ChartConfig{scatterCfg}, false)
+
+	content, err := os.ReadFile(out)
+	s.Require().NoError(err)
+	ds := extractVIZBDataFromHTML(string(content))
+	s.Require().NotNil(ds)
+	data := ds["data"].([]any)
+	s.Len(data, 2) // 2 rows; shared region dim → one merged point per row
+	statTypes := map[string]bool{}
+	for _, pt := range data {
+		stats := pt.(map[string]any)["stats"].([]any)
+		s.Require().Len(stats, 2)
+		for _, st := range stats {
+			statTypes[st.(map[string]any)["type"].(string)] = true
+		}
+	}
+	s.True(statTypes["latency by region"])
+	s.True(statTypes["sales by region"])
+}
+
+func extractVIZBDataFromHTML(html string) map[string]any {
+	const prefix = "window.VIZB_DATA = "
+	start := strings.Index(html, prefix)
+	if start == -1 {
+		return nil
+	}
+	start += len(prefix)
+	end := strings.Index(html[start:], ";")
+	if end == -1 {
+		return nil
+	}
+	raw := html[start : start+end]
+	var data map[string]any
+	if err := json.Unmarshal([]byte(raw), &data); err == nil {
+		return data
+	}
+	var arr []map[string]any
+	if err := json.Unmarshal([]byte(raw), &arr); err == nil && len(arr) > 0 {
+		return arr[0]
+	}
+	return nil
+}
+
+func TestPipelineSuite(t *testing.T) {
+	suite.Run(t, new(PipelineSuite))
+}

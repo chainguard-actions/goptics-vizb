@@ -1,0 +1,566 @@
+package shared
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+
+	internal_charts "github.com/goptics/vizb/internal/charts"
+	"github.com/goptics/vizb/internal/flags"
+	"github.com/goptics/vizb/internal/specparse"
+	"github.com/stretchr/testify/suite"
+)
+
+// ChartSpecSuite covers --chart spec parsing and the shared swap validator.
+type ChartSpecSuite struct {
+	suite.Suite
+	xynAxes   []Axis
+	allCharts []string
+}
+
+func (s *ChartSpecSuite) SetupTest() {
+	s.xynAxes = []Axis{{Key: "x"}, {Key: "y"}, {Key: "name"}}
+	s.allCharts = []string{"bar", "line", "pie", "heatmap", "radar"}
+}
+
+// payload marshals a parsed override config back to a generic map so its typed
+// fields can be asserted without an import cycle (config/charts/<chart> imports
+// shared, so shared cannot import them back).
+func (s *ChartSpecSuite) payload(cfg any) map[string]any {
+	raw, err := json.Marshal(cfg)
+	s.Require().NoError(err)
+	var m map[string]any
+	s.Require().NoError(json.Unmarshal(raw, &m))
+	return m
+}
+
+// TestParseOverrides_BarSwap is the canonical example: ParseOverrides for
+// "bar:swap=yxn" returns a typed bar Config with Swap == "yxn".
+func (s *ChartSpecSuite) TestParseOverridesBarSwap() {
+	got, warnings, err := ParseOverrides([]string{"bar:swap=yxn"}, []string{"bar"}, s.xynAxes)
+	s.Require().NoError(err)
+	s.Empty(warnings)
+	s.Require().NotNil(got)
+
+	cfg, ok := got["bar"]
+	s.Require().True(ok, "expected bar entry in overrides map")
+	s.Equal("bar", cfg.ChartType())
+	s.Equal("yxn", s.payload(cfg)["swap"])
+}
+
+// TestParseOverrides_AllFields exercises every supported key in a single spec.
+func (s *ChartSpecSuite) TestParseOverridesAllFields() {
+	got, _, err := ParseOverrides(
+		[]string{"bar:swap=yxn,sort=asc,scale=log,labels=true,3d-rotate=false"},
+		[]string{"bar"},
+		s.xynAxes,
+	)
+	s.Require().NoError(err)
+	s.Require().Contains(got, "bar")
+
+	m := s.payload(got["bar"])
+	s.Equal("yxn", m["swap"])
+	s.Equal("log", m["scale"])
+	s.Equal("asc", m["sort"].(map[string]any)["order"])
+	s.Equal(true, m["sort"].(map[string]any)["enabled"])
+	s.Equal(true, m["showLabels"])
+	s.Equal(false, m["threeDRotate"])
+}
+
+// TestParseOverrides_BareLabels confirms a bare flag (no =val) parses correctly.
+func (s *ChartSpecSuite) TestParseOverridesBareLabels() {
+	got, _, err := ParseOverrides([]string{"bar:labels"}, []string{"bar"}, s.xynAxes)
+	s.Require().NoError(err)
+	s.Equal(true, s.payload(got["bar"])["showLabels"])
+}
+
+func (s *ChartSpecSuite) TestParseOverridesLineSmooth() {
+	got, warnings, err := ParseOverrides([]string{"line:smooth"}, []string{"line"}, s.xynAxes)
+	s.Require().NoError(err)
+	s.Empty(warnings)
+	s.Equal(true, s.payload(got["line"])["smooth"])
+
+	got, warnings, err = ParseOverrides([]string{"bar:smooth"}, []string{"bar"}, s.xynAxes)
+	s.Require().NoError(err)
+	s.Require().NotEmpty(warnings)
+	s.Contains(warnings[0], "smooth")
+	s.Nil(s.payload(got["bar"])["smooth"])
+}
+
+func (s *ChartSpecSuite) TestParseOverridesBarHorizontal() {
+	got, warnings, err := ParseOverrides([]string{"bar:horizontal"}, []string{"bar"}, s.xynAxes)
+	s.Require().NoError(err)
+	s.Empty(warnings)
+	s.Equal(true, s.payload(got["bar"])["horizontal"])
+}
+
+func (s *ChartSpecSuite) TestParseOverridesBarBorderRadiusSingle() {
+	got, warnings, err := ParseOverrides([]string{"bar:border-radius=8"}, []string{"bar"}, s.xynAxes)
+	s.Require().NoError(err)
+	s.Empty(warnings)
+	// Encode always seeds an array; typed config re-marshals as [8].
+	raw := s.payload(got["bar"])["borderRadius"]
+	arr, ok := raw.([]any)
+	s.Require().True(ok, "expected borderRadius array, got %T", raw)
+	s.Equal([]any{float64(8)}, arr)
+}
+
+func (s *ChartSpecSuite) TestParseOverridesBarBorderRadiusMulti() {
+	got, warnings, err := ParseOverrides([]string{"bar:border-radius=8,8,0,0"}, []string{"bar"}, s.xynAxes)
+	s.Require().NoError(err)
+	s.Empty(warnings)
+	raw := s.payload(got["bar"])["borderRadius"]
+	arr, ok := raw.([]any)
+	s.Require().True(ok, "expected borderRadius array, got %T", raw)
+	s.Equal([]any{float64(8), float64(8), float64(0), float64(0)}, arr)
+}
+
+func (s *ChartSpecSuite) TestParseOverridesBarBorderRadiusInvalid() {
+	for _, spec := range []string{
+		"bar:border-radius=",
+		"bar:border-radius=8.5",
+		"bar:border-radius=-1",
+		"bar:border-radius=8,8,0,0,1",
+		"bar:border-radius=abc",
+	} {
+		_, _, err := ParseOverrides([]string{spec}, []string{"bar"}, s.xynAxes)
+		s.Error(err, spec)
+	}
+}
+
+// TestParseOverrides_BareStack confirms a bare stack flag parses correctly.
+func (s *ChartSpecSuite) TestParseOverridesBareStack() {
+	got, _, err := ParseOverrides([]string{"bar:stack"}, []string{"bar"}, s.xynAxes)
+	s.Require().NoError(err)
+	s.Equal(true, s.payload(got["bar"])["stack"])
+}
+
+// TestParseOverrides_BareThreeD confirms `3d` (no =val) enables value-mode 3D.
+func (s *ChartSpecSuite) TestParseOverridesBareThreeD() {
+	got, _, err := ParseOverrides([]string{"bar:3d"}, []string{"bar"}, s.xynAxes)
+	s.Require().NoError(err)
+	s.Equal(true, s.payload(got["bar"])["threeD"])
+}
+
+// TestParseOverrides_ScatterVisualMap confirms `visualmap` applies to scatter and
+// is dropped-with-warning (not an error) for charts that don't carry it.
+func (s *ChartSpecSuite) TestParseOverridesScatterVisualMap() {
+	got, _, err := ParseOverrides([]string{"scatter:visualmap"}, []string{"scatter"}, s.xynAxes)
+	s.Require().NoError(err)
+	s.Equal(true, s.payload(got["scatter"])["visualMap"])
+
+	got, warnings, err := ParseOverrides([]string{"bar:visualmap"}, []string{"bar"}, s.xynAxes)
+	s.Require().NoError(err)
+	s.Require().NotEmpty(warnings)
+	s.Contains(warnings[0], "visualmap")
+	s.Nil(s.payload(got["bar"])["visualMap"]) // dropped, not applied
+}
+
+// TestParseOverrides_BareThreeDVisualMap confirms `3d-visualmap` enables the gradient.
+func (s *ChartSpecSuite) TestParseOverridesBareThreeDVisualMap() {
+	got, _, err := ParseOverrides([]string{"bar:3d-visualmap"}, []string{"bar"}, s.xynAxes)
+	s.Require().NoError(err)
+	s.Equal(true, s.payload(got["bar"])["threeDVisualMap"])
+}
+
+// TestParseOverrides_SymbolFields confirms symbol + symbol-size parse into typed config.
+func (s *ChartSpecSuite) TestParseOverridesSymbolFields() {
+	got, _, err := ParseOverrides(
+		[]string{"scatter:symbol=triangle,symbol-size=12"},
+		[]string{"scatter"},
+		s.xynAxes,
+	)
+	s.Require().NoError(err)
+	m := s.payload(got["scatter"])
+	s.Equal("triangle", m["symbol"])
+	s.Equal(12.0, m["symbolSize"])
+}
+
+// TestParseOverrides_BareRotate confirms `3d-rotate` (no =val) sets threeDRotate=true.
+func (s *ChartSpecSuite) TestParseOverridesBareRotate() {
+	got, _, err := ParseOverrides([]string{"bar:3d-rotate"}, []string{"bar"}, s.xynAxes)
+	s.Require().NoError(err)
+	s.Equal(true, s.payload(got["bar"])["threeDRotate"])
+}
+
+// TestParseOverrides_MultipleSpecsSameType confirms two specs for the same
+// type are merged into a single entry in the map.
+func (s *ChartSpecSuite) TestParseOverridesMultipleSpecsSameType() {
+	got, _, err := ParseOverrides(
+		[]string{"bar:sort=asc", "bar:scale=log"},
+		[]string{"bar"},
+		s.xynAxes,
+	)
+	s.Require().NoError(err)
+	s.Require().Len(got, 1)
+
+	m := s.payload(got["bar"])
+	s.Equal("log", m["scale"])
+	s.Equal("asc", m["sort"].(map[string]any)["order"])
+}
+
+// TestParseOverrides_Empty confirms the function returns nil for empty input.
+func (s *ChartSpecSuite) TestParseOverridesEmpty() {
+	got, warnings, err := ParseOverrides(nil, []string{"bar"}, s.xynAxes)
+	s.Require().NoError(err)
+	s.Nil(got)
+	s.Nil(warnings)
+
+	got, _, err = ParseOverrides([]string{}, []string{"bar"}, s.xynAxes)
+	s.Require().NoError(err)
+	s.Nil(got)
+}
+
+// TestParseOverrides_Errors covers the validation failures that are hard errors:
+// malformed specs, unknown chart types, inactive charts, invalid values, and
+// keys that are valid for no chart (typos). Keys valid for another chart are
+// dropped-with-warning instead — see TestParseOverrides_CrossChartKeyDropped.
+func (s *ChartSpecSuite) TestParseOverridesErrors() {
+	cases := []struct {
+		name  string
+		specs []string
+	}{
+		{"malformed (no colon)", []string{"barswap=yxn"}},
+		{"empty rest after colon", []string{"bar:"}},
+		{"unknown chart type", []string{"graph:swap=yxn"}},
+		{"chart not in --charts", []string{"pie:sort=asc"}}, // only "bar" is active
+		{"bad sort value", []string{"bar:sort=invalid"}},
+		{"swap not a permutation", []string{"bar:swap=abc"}},
+		{"unknown key (typo)", []string{"bar:unknown=val"}},
+		{"unknown bare flag (typo)", []string{"bar:explode"}},
+	}
+	for _, c := range cases {
+		s.Run(c.name, func() {
+			_, _, err := ParseOverrides(c.specs, []string{"bar"}, s.xynAxes)
+			s.Error(err)
+		})
+	}
+}
+
+// TestParseOverrides_CrossChartKeyDropped documents the drop-with-warning
+// contract: a key valid for another chart (e.g. pie:scale) is dropped with a
+// warning rather than erroring or being silently ignored.
+func (s *ChartSpecSuite) TestParseOverridesCrossChartKeyDropped() {
+	got, warnings, err := ParseOverrides([]string{"pie:scale=log"}, []string{"pie"}, s.xynAxes)
+	s.Require().NoError(err)
+	s.Require().Contains(got, "pie")
+	s.Require().NotEmpty(warnings)
+	s.True(strings.Contains(warnings[0], "scale") && strings.Contains(warnings[0], "pie"))
+}
+
+// TestParseOverrides_BarStatBare confirms bare `stat` (no =value) enables all
+// stat categories.
+func (s *ChartSpecSuite) TestParseOverridesBarStatBare() {
+	got, _, err := ParseOverrides([]string{"bar:stat"}, []string{"bar"}, s.xynAxes)
+	s.Require().NoError(err)
+	m := s.payload(got["bar"])
+	stat, ok := m["stat"].(map[string]any)
+	s.Require().True(ok, "expected stat to be a map")
+	s.Equal(true, stat["enabled"])
+	math, _ := stat["math"].([]any)
+	s.Empty(math, "bare stat should produce empty math (all categories)")
+}
+
+// TestParseOverrides_BarStatValue confirms `stat=<category>` enables stats for
+// the specified category.
+func (s *ChartSpecSuite) TestParseOverridesBarStatValue() {
+	got, _, err := ParseOverrides([]string{"bar:stat=center"}, []string{"bar"}, s.xynAxes)
+	s.Require().NoError(err)
+	m := s.payload(got["bar"])
+	stat, ok := m["stat"].(map[string]any)
+	s.Require().True(ok, "expected stat to be a map")
+	s.Equal(true, stat["enabled"])
+	math, _ := stat["math"].([]any)
+	s.Require().Len(math, 1)
+	s.Equal("center", math[0])
+}
+
+// TestParseOverrides_BarStatMultiValue confirms comma-separated stat categories
+// stay on the stat key (legacy multi-value) instead of becoming extra tokens.
+func (s *ChartSpecSuite) TestParseOverridesBarStatMultiValue() {
+	got, warnings, err := ParseOverrides([]string{"bar:stat=center,spread"}, []string{"bar"}, s.xynAxes)
+	s.Require().NoError(err)
+	s.Empty(warnings)
+	m := s.payload(got["bar"])
+	stat, ok := m["stat"].(map[string]any)
+	s.Require().True(ok, "expected stat to be a map")
+	s.Equal(true, stat["enabled"])
+	math, _ := stat["math"].([]any)
+	s.Require().Len(math, 2)
+	s.Equal("center", math[0])
+	s.Equal("spread", math[1])
+}
+
+// TestParseOverrides_BarStatMultiValueWithBareLabels confirms multi-value stat
+// followed by a bare known key works in both legacy-comma and semicolon forms.
+func (s *ChartSpecSuite) TestParseOverridesBarStatMultiValueWithBareLabels() {
+	// Semicolon form: unambiguous prop boundary after multi-value stat.
+	got, warnings, err := ParseOverrides(
+		[]string{"bar:stat=center,spread;labels"},
+		[]string{"bar"},
+		s.xynAxes,
+	)
+	s.Require().NoError(err)
+	s.Empty(warnings)
+	m := s.payload(got["bar"])
+	stat, ok := m["stat"].(map[string]any)
+	s.Require().True(ok, "expected stat to be a map")
+	s.Equal(true, stat["enabled"])
+	math, _ := stat["math"].([]any)
+	s.Require().Len(math, 2)
+	s.Equal("center", math[0])
+	s.Equal("spread", math[1])
+	s.Equal(true, m["showLabels"])
+
+	// Legacy comma form: KnownKeys lets "labels" start a new prop after multi-value.
+	got, warnings, err = ParseOverrides(
+		[]string{"bar:stat=center,spread,labels"},
+		[]string{"bar"},
+		s.xynAxes,
+	)
+	s.Require().NoError(err)
+	s.Empty(warnings)
+	m = s.payload(got["bar"])
+	stat, ok = m["stat"].(map[string]any)
+	s.Require().True(ok, "expected stat to be a map")
+	math, _ = stat["math"].([]any)
+	s.Require().Len(math, 2)
+	s.Equal("center", math[0])
+	s.Equal("spread", math[1])
+	s.Equal(true, m["showLabels"])
+}
+
+// TestParseOverrides_BarStatInvalid confirms `stat=<invalid>` is a hard error.
+func (s *ChartSpecSuite) TestParseOverridesBarStatInvalid() {
+	_, _, err := ParseOverrides([]string{"bar:stat=bogus"}, []string{"bar"}, s.xynAxes)
+	s.Error(err)
+}
+
+func (s *ChartSpecSuite) TestParseOverridesInvalidSwap() {
+	_, _, err := ParseOverrides([]string{"bar:swap=abc"}, []string{"bar"}, s.xynAxes)
+	s.Error(err)
+}
+
+func (s *ChartSpecSuite) TestValidateSwap() {
+	s.Run("empty swap is always valid", func() {
+		s.NoError(ValidateSwap("", s.xynAxes))
+	})
+	s.Run("valid permutation passes", func() {
+		s.NoError(ValidateSwap("yxn", s.xynAxes))
+	})
+	s.Run("non-permutation fails", func() {
+		s.Error(ValidateSwap("abc", s.xynAxes))
+	})
+	s.Run("unknown axis char fails", func() {
+		s.Error(ValidateSwap("xyz", s.xynAxes))
+	})
+	s.Run("no axes accepts any non-empty swap", func() {
+		s.NoError(ValidateSwap("anything", nil))
+	})
+	s.Run("metric axis excluded from identity", func() {
+		axes := []Axis{{Key: "x"}, {Key: "y"}, {Key: "metric"}, {Key: "name"}}
+		s.NoError(ValidateSwap("yxn", axes))
+		s.Error(ValidateSwap("xym", axes))
+	})
+}
+
+func (s *ChartSpecSuite) TestConvertIntegerFlagValue() {
+	flag := flags.Flag{Name: "limit", Kind: flags.KindInt}
+
+	value, err := convertFlagValue(flag, specparse.Prop{Key: "limit", Value: "12", HasValue: true}, nil)
+	s.Require().NoError(err)
+	s.Equal(12, value)
+
+	_, err = convertFlagValue(flag, specparse.Prop{Key: "limit", Value: "twelve", HasValue: true}, nil)
+	s.EqualError(err, `--chart: key "limit" value "twelve" must be an integer`)
+
+	_, err = convertFlagValue(flag, specparse.Prop{Key: "limit"}, nil)
+	s.EqualError(err, `--chart: key "limit" requires a value (e.g. limit=<value>)`)
+}
+
+// --- --chart object values (bar:bg) ---
+
+func (s *ChartSpecSuite) TestParseOverridesBarBgBare() {
+	got, warnings, err := ParseOverrides([]string{"bar:bg"}, []string{"bar"}, s.xynAxes)
+	s.Require().NoError(err)
+	s.Empty(warnings)
+	s.Equal(map[string]any{"active": true}, s.payload(got["bar"])["background"])
+}
+
+func (s *ChartSpecSuite) TestParseOverridesBarBgEmptyBraces() {
+	got, warnings, err := ParseOverrides([]string{"bar:bg={}"}, []string{"bar"}, s.xynAxes)
+	s.Require().NoError(err)
+	s.Empty(warnings)
+	s.Equal(map[string]any{"active": true}, s.payload(got["bar"])["background"])
+}
+
+func (s *ChartSpecSuite) TestParseOverridesBarBgStyled() {
+	spec := "bar:bg={color=rgba(180, 180, 180, 0.2);borderColor=#000;borderWidth=0}"
+	got, warnings, err := ParseOverrides([]string{spec}, []string{"bar"}, s.xynAxes)
+	s.Require().NoError(err)
+	s.Empty(warnings)
+	background, ok := s.payload(got["bar"])["background"].(map[string]any)
+	s.Require().True(ok, "expected background object")
+	s.Equal(true, background["active"])
+	s.Equal("rgba(180, 180, 180, 0.2)", background["color"])
+	s.Equal("#000", background["borderColor"])
+	s.Equal(float64(0), background["borderWidth"])
+}
+
+func (s *ChartSpecSuite) TestParseOverridesBarBgMixedWithSiblings() {
+	s.Run("comma mode", func() {
+		spec := "bar:horizontal,bg={opacity=0.2}"
+		got, warnings, err := ParseOverrides([]string{spec}, []string{"bar"}, s.xynAxes)
+		s.Require().NoError(err)
+		s.Empty(warnings)
+		m := s.payload(got["bar"])
+		s.Equal(true, m["horizontal"])
+		s.Equal(0.2, m["background"].(map[string]any)["opacity"])
+	})
+	s.Run("semicolon mode", func() {
+		spec := "bar:sort=asc;bg={opacity=0.2;borderRadius=8,8,0,0}"
+		got, warnings, err := ParseOverrides([]string{spec}, []string{"bar"}, s.xynAxes)
+		s.Require().NoError(err)
+		s.Empty(warnings)
+		m := s.payload(got["bar"])
+		s.Equal("asc", m["sort"].(map[string]any)["order"])
+		background := m["background"].(map[string]any)
+		s.Equal(0.2, background["opacity"])
+		s.Equal([]any{float64(8), float64(8), float64(0), float64(0)}, background["borderRadius"])
+	})
+}
+
+func (s *ChartSpecSuite) TestParseOverridesBarBgUnwrappedScalarIsError() {
+	for _, spec := range []string{
+		"bar:bg=color=rgba(180,180,180,0.2)",
+		"bar:bg=true",
+		"bar:bg=",
+	} {
+		_, _, err := ParseOverrides([]string{spec}, []string{"bar"}, s.xynAxes)
+		s.Require().Error(err, spec)
+		s.Contains(err.Error(), "brace-delimited object", spec)
+		s.Contains(err.Error(), "bg={", spec)
+	}
+}
+
+func (s *ChartSpecSuite) TestParseOverridesBarBgInvalidFields() {
+	cases := []struct {
+		name string
+		spec string
+		want string
+	}{
+		{"unknown key", "bar:bg={decal=1}", "unknown object field"},
+		{"bare field", "bar:bg={color}", "bare key"},
+		{"bad number", "bar:bg={opacity=abc}", "must be a number"},
+		{"negative width", "bar:bg={borderWidth=-1}", "non-negative"},
+		{"opacity range", "bar:bg={opacity=1.5}", "between 0 and 1"},
+		{"invalid borderType", "bar:bg={borderType=dash}", "solid, dashed, or dotted"},
+		{"invalid borderRadius", "bar:bg={borderRadius=8,8,0,0,1}", "at most 4 values"},
+		{"float borderRadius", "bar:bg={borderRadius=8.5}", "must be an integer"},
+	}
+	for _, c := range cases {
+		s.Run(c.name, func() {
+			_, _, err := ParseOverrides([]string{c.spec}, []string{"bar"}, s.xynAxes)
+			s.Require().Error(err)
+			s.Contains(err.Error(), c.want)
+		})
+	}
+}
+
+func (s *ChartSpecSuite) TestParseOverridesScaleStringBackCompat() {
+	got, warnings, err := ParseOverrides([]string{"line:scale=log"}, []string{"line"}, s.xynAxes)
+	s.Require().NoError(err)
+	s.Empty(warnings)
+	s.Equal("log", s.payload(got["line"])["scale"])
+}
+
+func (s *ChartSpecSuite) TestParseOverridesScaleBraceTypeOnlyIsString() {
+	got, warnings, err := ParseOverrides(
+		[]string{"line:scale={type=log}"},
+		[]string{"line"},
+		s.xynAxes,
+	)
+	s.Require().NoError(err)
+	s.Empty(warnings)
+	s.Equal("log", s.payload(got["line"])["scale"])
+}
+
+func (s *ChartSpecSuite) TestParseOverridesScaleBraceBag() {
+	got, warnings, err := ParseOverrides(
+		[]string{"line:scale={type=log;axes=x;base=10}"},
+		[]string{"line"},
+		s.xynAxes,
+	)
+	s.Require().NoError(err)
+	s.Empty(warnings)
+	scale, ok := s.payload(got["line"])["scale"].(map[string]any)
+	s.Require().True(ok, "expected scale object")
+	s.Equal("log", scale["type"])
+	s.Equal([]any{"x"}, scale["axes"])
+	s.Equal(float64(10), scale["base"])
+}
+
+func (s *ChartSpecSuite) TestParseOverridesScaleBraceKeepsSiblingSmooth() {
+	got, warnings, err := ParseOverrides(
+		[]string{"line:scale={type=log;axes=x,y;baseX=5;baseY=10};smooth"},
+		[]string{"line"},
+		s.xynAxes,
+	)
+	s.Require().NoError(err)
+	s.Empty(warnings)
+	m := s.payload(got["line"])
+	s.Equal(true, m["smooth"])
+	scale, ok := m["scale"].(map[string]any)
+	s.Require().True(ok, "expected scale object")
+	s.Equal("log", scale["type"])
+	s.Equal([]any{"x", "y"}, scale["axes"])
+	s.Equal(float64(10), scale["base"])
+	s.Equal(float64(5), scale["baseX"])
+	s.Nil(scale["baseY"])
+}
+
+func (s *ChartSpecSuite) TestParseOverridesScaleUnwrappedBagIsError() {
+	_, _, err := ParseOverrides([]string{"line:scale=type=log;axes=x"}, []string{"line"}, s.xynAxes)
+	s.Require().Error(err)
+	s.Contains(err.Error(), "brace-delimited object")
+	s.Contains(err.Error(), "scale={")
+}
+
+func (s *ChartSpecSuite) TestParseOverridesScaleBareIsError() {
+	_, _, err := ParseOverrides([]string{"line:scale"}, []string{"line"}, s.xynAxes)
+	s.Require().Error(err)
+	s.Contains(err.Error(), `key "scale" requires a value`)
+	s.Contains(err.Error(), "scale={type=log;axes=x}")
+}
+
+func (s *ChartSpecSuite) TestParseOverridesScaleBraceUnknownField() {
+	_, _, err := ParseOverrides([]string{"line:scale={nope=1}"}, []string{"line"}, s.xynAxes)
+	s.Require().Error(err)
+	s.Contains(err.Error(), `key "scale"`)
+	s.Contains(err.Error(), "unknown object field")
+}
+
+func (s *ChartSpecSuite) TestParseOverridesScaleInvalidScalar() {
+	_, _, err := ParseOverrides([]string{"line:scale=foo"}, []string{"line"}, s.xynAxes)
+	s.Require().Error(err)
+	s.Contains(err.Error(), `scale value "foo" is invalid`)
+}
+
+func (s *ChartSpecSuite) TestParseOverridesScaleBraceMatchesFlag() {
+	flagPayload := EncodeScaleValue("type=log;axes=x;base=10", internal_charts.ScaleFlag.ObjectFields)
+	got, _, err := ParseOverrides(
+		[]string{"line:scale={type=log;axes=x;base=10}"},
+		[]string{"line"},
+		s.xynAxes,
+	)
+	s.Require().NoError(err)
+	raw, err := json.Marshal(map[string]any{"scale": flagPayload})
+	s.Require().NoError(err)
+	chartRaw, err := json.Marshal(map[string]any{"scale": s.payload(got["line"])["scale"]})
+	s.Require().NoError(err)
+	s.JSONEq(string(raw), string(chartRaw))
+}
+
+func TestChartSpecSuite(t *testing.T) {
+	suite.Run(t, new(ChartSpecSuite))
+}

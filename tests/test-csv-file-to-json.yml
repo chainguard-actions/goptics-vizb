@@ -1,0 +1,52 @@
+name: Test CSV file to JSON output
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Prepare fake vizb binary
+        run: |
+          cp "$GITHUB_WORKSPACE/tests/fixtures/fake-vizb.sh" /tmp/fake-vizb
+          chmod +x /tmp/fake-vizb
+
+      - id: action
+        uses: .
+        with:
+          file: ${{ github.workspace }}/tests/fixtures/data.csv
+          output-json: /tmp/vizb-output.json
+          name: "Test CSV Dataset"
+          parser: csv
+          vizb-binary: /tmp/fake-vizb
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/vizb-output.json" ]; then
+            echo "FAIL: JSON output file not found at /tmp/vizb-output.json"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert JSON output is non-empty
+        run: |
+          CONTENT=$(cat /tmp/vizb-output.json)
+          echo "content: $CONTENT"
+          if [ -z "$CONTENT" ]; then
+            echo "FAIL: JSON output file is empty"
+            exit 1
+          fi
+          echo "PASS: JSON output is non-empty"
+
+      - name: Assert output-file-json output matches
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/vizb-output.json" ]; then
+            echo "FAIL: expected output-file-json='/tmp/vizb-output.json', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS: output-file-json matches"

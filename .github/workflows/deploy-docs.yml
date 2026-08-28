@@ -1,0 +1,56 @@
+name: Deploy Docs
+
+on:
+  workflow_call:
+    inputs:
+      publish:
+        required: false
+        type: boolean
+        default: false
+        description: "Publish the generated docs immediately"
+  workflow_dispatch:
+    inputs:
+      publish:
+        required: false
+        type: boolean
+        default: true
+        description: "Publish the generated docs immediately"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Setup Node and pnpm
+        uses: ./.github/actions/setup-js
+        with:
+          cache-dependency-path: docs/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+        working-directory: docs
+
+      - run: pnpm build
+        working-directory: docs
+
+      - name: Upload docs site
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: site-docs
+          path: docs/dist
+          if-no-files-found: error
+
+  # Deploy is a separate job (not nested in build) so callers can prepare-only.
+  publish:
+    if: ${{ inputs.publish }}
+    needs: build
+    permissions:
+      contents: write
+    uses: ./.github/workflows/publish-site.yml
+    with:
+      artifact_pattern: site-docs
+      keep_files: true

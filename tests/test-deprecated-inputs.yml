@@ -1,0 +1,50 @@
+name: Test deprecated bench-file and bench-cmd inputs
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Prepare fake vizb binary
+        run: |
+          cp "$GITHUB_WORKSPACE/tests/fixtures/fake-vizb.sh" /tmp/fake-vizb
+          chmod +x /tmp/fake-vizb
+
+      - name: Test deprecated bench-file input
+        id: bench-file-action
+        uses: .
+        with:
+          bench-file: ${{ github.workspace }}/tests/fixtures/data.csv
+          output-json: /tmp/vizb-bench-file-output.json
+          name: "Deprecated bench-file Test"
+          parser: csv
+          vizb-binary: /tmp/fake-vizb
+
+      - name: Assert JSON output from bench-file exists
+        run: |
+          if [ ! -f "/tmp/vizb-bench-file-output.json" ]; then
+            echo "FAIL: JSON output file not found (bench-file input)"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists when using bench-file input"
+
+      - name: Test deprecated bench-cmd input
+        id: bench-cmd-action
+        uses: .
+        with:
+          bench-cmd: "printf 'name,value\\nX,10\\nY,20\\n'"
+          output-json: /tmp/vizb-bench-cmd-output.json
+          name: "Deprecated bench-cmd Test"
+          parser: csv
+          vizb-binary: /tmp/fake-vizb
+
+      - name: Assert JSON output from bench-cmd exists
+        run: |
+          if [ ! -f "/tmp/vizb-bench-cmd-output.json" ]; then
+            echo "FAIL: JSON output file not found (bench-cmd input)"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists when using bench-cmd input"

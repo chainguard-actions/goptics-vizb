@@ -1,0 +1,6 @@
+[
+  {"name": "Alpha", "value": 100, "category": "A"},
+  {"name": "Beta", "value": 200, "category": "B"},
+  {"name": "Gamma", "value": 150, "category": "A"},
+  {"name": "Delta", "value": 300, "category": "B"}
+]

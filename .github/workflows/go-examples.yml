@@ -1,0 +1,158 @@
+name: "Examples: Go"
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/go/**"
+      - "action.yml"
+      - ".github/workflows/merge-examples.yml"
+      - ".github/workflows/go-examples.yml"
+  workflow_call:
+    inputs:
+      publish:
+        required: false
+        type: boolean
+        default: false
+        description: "Publish after merge (default false; set true to publish immediately)"
+  workflow_dispatch:
+    inputs:
+      publish:
+        required: false
+        type: boolean
+        default: true
+        description: "Publish after merge (default true; set false to prepare-only)"
+
+jobs:
+  convert:
+    name: Convert Go Benchmarks
+    strategy:
+      matrix:
+        include:
+          - id: 00-http-routing
+            file: http-routing
+            name: "HTTP Routing"
+            description: "Performance comparison of popular Go HTTP routers"
+            group-pattern: x_y
+            charts: line,pie
+            chart: "line:sort=asc,scale=log"
+
+          - id: 01-decode
+            file: decode-encode
+            name: "Decode"
+            description: "Decode performance across text, level, and size"
+            group-regex: "/text=(?<n>.*)/level=(?<x>.*)/size=(?<y>.*)"
+            filter: "Decode"
+            charts: bar
+            chart: "bar:scale=log,sort=asc"
+
+          - id: 02-encode
+            file: decode-encode
+            name: "Encode"
+            description: "Encode performance across text, level, and size"
+            group-regex: "/text=(?<n>.*)/level=(?<x>.*)/size=(?<y>.*)"
+            filter: "Encode"
+            charts: bar
+            chart: "bar:scale=log,sort=asc"
+
+          - id: 03-hash
+            file: hash
+            name: "Hashing"
+            description: "Comparison of different hash functions"
+            group-regex: "Hashing64(?<x>.*)"
+            charts: bar
+            chart: "bar:sort=asc"
+
+          - id: 04-serialization
+            file: serialization
+            name: "Serialization"
+            description: "Comparison of different serialization methods"
+            group-regex: "(?<x>.*)By(?<y>.*)"
+            charts: bar
+            chart: "bar:sort=asc,scale=log"
+
+          - id: 05-validator
+            file: validator
+            name: "Validator"
+            description: "Validation success vs failure across rule sets"
+            group-regex: "(?<y>.*?)(?:(?<x>Success|Failure)(?<n>.*)|$)"
+            charts: bar
+            chart: "bar:sort=asc,scale=log"
+
+          - id: 06-varmq
+            file: varmq
+            name: "Varmq"
+            description: "Variadic queue benchmark"
+            group-pattern: n/x
+            charts: bar
+            chart: "bar:sort=asc"
+
+          - id: 07-worker-pools
+            file: worker-pools
+            name: "Worker Pools"
+            description: "Performance comparison of different worker pool implementations"
+            group-pattern: n/y/x
+            charts: bar
+            chart: "bar:sort=asc"
+
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: ${{ matrix.name }}
+        uses: ./
+        with:
+          file: examples/go/${{ matrix.file }}.txt
+          id: ${{ matrix.id }}
+          name: ${{ matrix.name }}
+          description: ${{ matrix.description }}
+          group-pattern: ${{ matrix.group-pattern }}
+          group-regex: ${{ matrix.group-regex }}
+          filter: ${{ matrix.filter }}
+          charts: ${{ matrix.charts }}
+          chart: ${{ matrix.chart }}
+          output-json: ${{ matrix.id }}.json
+          vizb-binary: ${{ env.ACT == 'true' && './bin/vizb' || '' }}
+
+      - name: Stage json for local merge
+        if: env.ACT == 'true'
+        env:
+          MATRIX_ID: ${{ matrix.id }}
+        run: mkdir -p .act/jsons && cp "$MATRIX_ID.json" .act/jsons/
+
+      - name: Uploading json artifacts
+        if: env.ACT != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: json-go-${{ matrix.id }}
+          path: ${{ matrix.id }}.json
+
+  merge:
+    name: Merge Go Benchmarks
+    needs: convert
+    permissions:
+      contents: read
+    uses: ./.github/workflows/merge-examples.yml
+    with:
+      example_category: go
+
+  publish:
+    name: Publish Go examples
+    needs: merge
+    if: >-
+      ${{
+        inputs.publish ||
+        (
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main'
+        )
+      }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/publish-site.yml
+    with:
+      artifact_pattern: site-examples-go
+      keep_files: true

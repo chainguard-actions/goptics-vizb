@@ -1,0 +1,73 @@
+name: Test cmd input to HTML output
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Prepare fake vizb binary
+        run: |
+          cp "$GITHUB_WORKSPACE/tests/fixtures/fake-vizb.sh" /tmp/fake-vizb
+          chmod +x /tmp/fake-vizb
+
+      - id: action
+        uses: .
+        with:
+          cmd: "printf 'name,value\\nAlpha,100\\nBeta,200\\n'"
+          output-json: /tmp/vizb-cmd-output.json
+          output-html: /tmp/vizb-cmd-output.html
+          name: "Test Cmd Dataset"
+          parser: csv
+          charts: bar
+          vizb-binary: /tmp/fake-vizb
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/vizb-cmd-output.json" ]; then
+            echo "FAIL: JSON output file not found at /tmp/vizb-cmd-output.json"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert HTML output file exists
+        run: |
+          if [ ! -f "/tmp/vizb-cmd-output.html" ]; then
+            echo "FAIL: HTML output file not found at /tmp/vizb-cmd-output.html"
+            exit 1
+          fi
+          echo "PASS: HTML output file exists"
+
+      - name: Assert HTML output contains expected content
+        run: |
+          CONTENT=$(cat /tmp/vizb-cmd-output.html)
+          echo "content: $CONTENT"
+          if ! echo "$CONTENT" | grep -qi "html"; then
+            echo "FAIL: HTML output does not contain 'html'"
+            exit 1
+          fi
+          echo "PASS: HTML output contains expected content"
+
+      - name: Assert output-file-html output matches
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/vizb-cmd-output.html" ]; then
+            echo "FAIL: expected output-file-html='/tmp/vizb-cmd-output.html', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS: output-file-html matches"
+
+      - name: Assert output-file-json output matches
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/vizb-cmd-output.json" ]; then
+            echo "FAIL: expected output-file-json='/tmp/vizb-cmd-output.json', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS: output-file-json matches"

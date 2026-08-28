@@ -1,0 +1,127 @@
+name: action
+on:
+  workflow_call:
+    inputs:
+      binary:
+        description: "build = local go build + vizb-binary; released = download latest v0"
+        type: string
+        default: build
+      rebuild-embed:
+        description: "Regenerate vizb-ui.gen.go from ui/ when embed sources changed"
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      binary:
+        description: "build = local go build + vizb-binary; released = download latest v0"
+        type: choice
+        options: [build, released]
+        default: build
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  # Fast gate: Node unit tests before multi-OS action runs.
+  unit:
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Run action unit tests
+        run: node --test action/*.test.mjs
+
+  stateless:
+    needs: [unit]
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Go
+        if: env.ACT != 'true' && inputs.binary == 'build'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Rebuild embed
+        if: env.ACT != 'true' && inputs.binary == 'build' && inputs.rebuild-embed
+        uses: ./.github/actions/setup-embed-ui
+
+      - name: Build vizb
+        if: env.ACT != 'true' && inputs.binary == 'build'
+        run: go build -o ./bin/vizb .
+
+      - name: Run action (stateless)
+        id: vizb
+        uses: ./
+        with:
+          file: examples/go/hash.txt
+          output-html: index.html
+          output-json: results/stateless.json
+          vizb-binary: ${{ inputs.binary == 'build' && './bin/vizb' || '' }}
+
+      - name: Verify action outputs
+        env:
+          EXPECTED_JSON_KIND: object
+          EXPECTED_NAMES: '["Comparisons"]'
+          HTML_FILE: ${{ steps.vizb.outputs.output-file-html }}
+          JSON_FILE: ${{ steps.vizb.outputs.output-file-json }}
+        run: node scripts/verify-action-output.mjs
+
+  stateful:
+    needs: [unit]
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Go
+        if: env.ACT != 'true' && inputs.binary == 'build'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Rebuild embed
+        if: env.ACT != 'true' && inputs.binary == 'build' && inputs.rebuild-embed
+        uses: ./.github/actions/setup-embed-ui
+
+      - name: Build vizb
+        if: env.ACT != 'true' && inputs.binary == 'build'
+        run: go build -o ./bin/vizb .
+
+      - name: Generate previous JSON
+        uses: ./
+        with:
+          name: Hash
+          file: examples/go/hash.txt
+          output-json: results/prev/hash.json
+          vizb-binary: ${{ inputs.binary == 'build' && './bin/vizb' || '' }}
+
+      - name: Run action (stateful)
+        id: vizb
+        uses: ./
+        with:
+          name: HTTP Frameworks Comparisons
+          group-pattern: x_n
+          sort: asc
+          file: examples/go/http-routing.txt
+          merge-dir: results/prev
+          output-html: index.html
+          output-json: results/bench.json
+          vizb-binary: ${{ inputs.binary == 'build' && './bin/vizb' || '' }}
+
+      - name: Verify action outputs
+        env:
+          EXPECTED_JSON_KIND: array
+          EXPECTED_NAMES: '["Hash", "HTTP Frameworks Comparisons"]'
+          HTML_FILE: ${{ steps.vizb.outputs.output-file-html }}
+          JSON_FILE: ${{ steps.vizb.outputs.output-file-json }}
+        run: node scripts/verify-action-output.mjs

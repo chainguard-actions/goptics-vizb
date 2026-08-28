@@ -1,0 +1,104 @@
+# Sole routine writer of pkg/template/vizb-ui.gen.go on main.
+# Humans must not commit this file on feature branches (lefthook + CLI PR guard).
+#
+# Privilege split: generate runs with contents:read and no push credentials;
+# commit mints a vizb-bot installation token so the push can bypass the main
+# PR-required ruleset (GITHUB_TOKEN / github-actions[bot] cannot).
+#
+# Secrets (repo Actions secrets):
+#   VIZB_BOT_APP_ID       — App ID from https://github.com/apps/vizb-bot
+#   VIZB_BOT_PRIVATE_KEY  — private key PEM generated on the app settings page
+#
+# Also add vizb-bot to Main rules bypass list (Apps → vizb-bot → Always).
+#
+# No infinite loop: path filters watch ui/** / setup action only; bot commits
+# only the gen file. App-token commits can re-fire other workflows (unlike
+# GITHUB_TOKEN); that is intentional for CLI on **.go.
+name: Sync embed UI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ui/**"
+      - "ui/pnpm-lock.yaml"
+      - ".github/actions/setup-embed-ui/**"
+      - ".github/actions/setup-js/**"
+      - ".github/workflows/sync-embed-ui.yml"
+
+concurrency:
+  group: sync-embed-ui
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+      actions: write
+    concurrency:
+      group: embed-ui-${{ github.sha }}
+      queue: max
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup embed UI
+        uses: ./.github/actions/setup-embed-ui
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify pure-Go build with regenerated embed
+        run: go build -o /tmp/vizb-sync-check .
+
+      - name: Upload generated embed
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sync-embed-ui-gen
+          path: pkg/template/vizb-ui.gen.go
+          if-no-files-found: error
+
+  commit:
+    needs: generate
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    steps:
+      - name: Create vizb-bot token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ secrets.VIZB_BOT_APP_ID }}
+          private-key: ${{ secrets.VIZB_BOT_PRIVATE_KEY }}
+          # Downscope: install may grant more; this token only needs push.
+          permission-contents: write
+
+      # persist-credentials true (default): git-auto-commit pushes with app token.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: true
+
+      - name: Download generated embed
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: sync-embed-ui-gen
+          path: pkg/template
+
+      - name: Commit gen if changed
+        uses: stefanzweifel/git-auto-commit-action@4a55954c782fc1ea30b9056cd3e7a2b40ca8887d # v7
+        with:
+          commit_message: "chore(ui): sync vizb-ui.gen.go"
+          file_pattern: pkg/template/vizb-ui.gen.go
+          commit_user_name: vizb-bot[bot]
+          # Bot user id 312060874 (not App ID 4463084) so GitHub links the bot badge.
+          commit_user_email: 312060874+vizb-bot[bot]@users.noreply.github.com
+          # Avoid defaulting author to the human who pushed the ui/ change.
+          commit_author: vizb-bot[bot] <312060874+vizb-bot[bot]@users.noreply.github.com>

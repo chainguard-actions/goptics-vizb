@@ -1,0 +1,66 @@
+name: Test JSON file input with options
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Prepare fake vizb binary
+        run: |
+          cp "$GITHUB_WORKSPACE/tests/fixtures/fake-vizb.sh" /tmp/fake-vizb
+          chmod +x /tmp/fake-vizb
+
+      - id: action
+        uses: .
+        with:
+          file: ${{ github.workspace }}/tests/fixtures/data.json
+          output-json: /tmp/vizb-json-output.json
+          output-html: /tmp/vizb-json-output.html
+          name: "JSON Test"
+          description: "Testing JSON input"
+          tag: "v1.0"
+          charts: "bar,line"
+          parser: json
+          round: "true"
+          vizb-binary: /tmp/fake-vizb
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f "/tmp/vizb-json-output.json" ]; then
+            echo "FAIL: JSON output file not found"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert HTML output file exists
+        run: |
+          if [ ! -f "/tmp/vizb-json-output.html" ]; then
+            echo "FAIL: HTML output file not found"
+            exit 1
+          fi
+          echo "PASS: HTML output file exists"
+
+      - name: Assert output-file-json action output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/vizb-json-output.json" ]; then
+            echo "FAIL: expected '/tmp/vizb-json-output.json', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert output-file-html action output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/vizb-json-output.html" ]; then
+            echo "FAIL: expected '/tmp/vizb-json-output.html', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

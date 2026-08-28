@@ -1,0 +1,128 @@
+name: "Examples: Tabular Data"
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/csv/**"
+      - "action.yml"
+      - ".github/workflows/merge-examples.yml"
+      - ".github/workflows/tabular-data-examples.yml"
+  workflow_call:
+    inputs:
+      publish:
+        required: false
+        type: boolean
+        default: false
+        description: "Publish after merge (default false; set true to publish immediately)"
+  workflow_dispatch:
+    inputs:
+      publish:
+        required: false
+        type: boolean
+        default: true
+        description: "Publish after merge (default true; set false to prepare-only)"
+
+jobs:
+  convert:
+    name: Convert Tabular Data
+    strategy:
+      matrix:
+        include:
+          - id: 00-sales-auto-group
+            file: sales
+            name: "Sales Auto-Group"
+            description: "Auto-grouped bar chart — vizb picks order_date as the X axis (highest-cardinality categorical column)"
+            charts: bar,pie
+
+          - id: 01-sales-grouped
+            file: sales
+            name: "Sales by Product"
+            description: "Grouped 2D bar chart by product, region, and category"
+            group: "product,region,category"
+            group-pattern: n,x,y
+            charts: bar,pie
+
+          - id: 02-sales-by-date
+            file: sales
+            name: "Sales by Date"
+            description: "Monthly sales by category with year/month/date axis splitting"
+            group: "order_date,category"
+            group-pattern: "[n{Year}-y{Month}-x{Date}],z{Category}"
+            charts: bar,pie
+
+          - id: 03-house-price-area2
+            file: house-price-area2
+            name: "House Price vs Area"
+            description: "2D scatter — auto-value area/price with visualMap gradient (16k points, ECharts house-price demo)"
+            charts: scatter
+            chart: "scatter:visualmap"
+
+          - id: 04-life-expectancy-income
+            file: life-expectancy-income
+            name: "Life Expectancy vs Income"
+            description: "Mixed scatter — country category with life expectancy and income via --select"
+            select: 'Country,"Life Expectancy",Income'
+            charts: scatter
+
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: ${{ matrix.name }}
+        uses: ./
+        with:
+          file: examples/csv/${{ matrix.file }}.csv
+          id: ${{ matrix.id }}
+          name: ${{ matrix.name }}
+          description: ${{ matrix.description }}
+          group: ${{ matrix.group }}
+          group-pattern: ${{ matrix.group-pattern }}
+          select: ${{ matrix.select }}
+          charts: ${{ matrix.charts }}
+          chart: ${{ matrix.chart }}
+          output-json: ${{ matrix.id }}.json
+          vizb-binary: ${{ env.ACT == 'true' && './bin/vizb' || '' }}
+
+      - name: Stage json for local merge
+        if: env.ACT == 'true'
+        env:
+          MATRIX_ID: ${{ matrix.id }}
+        run: mkdir -p .act/jsons && cp "$MATRIX_ID.json" .act/jsons/
+
+      - name: Uploading json artifacts
+        if: env.ACT != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: json-tabular-data-${{ matrix.id }}
+          path: ${{ matrix.id }}.json
+
+  merge:
+    name: Merge Tabular Data
+    needs: convert
+    permissions:
+      contents: read
+    uses: ./.github/workflows/merge-examples.yml
+    with:
+      example_category: tabular-data
+
+  publish:
+    name: Publish Tabular Data examples
+    needs: merge
+    if: >-
+      ${{
+        inputs.publish ||
+        (
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main'
+        )
+      }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/publish-site.yml
+    with:
+      artifact_pattern: site-examples-tabular-data
+      keep_files: true

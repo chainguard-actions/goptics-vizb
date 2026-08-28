@@ -1,0 +1,124 @@
+name: "Examples: Math & 3D"
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/csv/**"
+      - "action.yml"
+      - ".github/workflows/merge-examples.yml"
+      - ".github/workflows/math-and-3d-examples.yml"
+  workflow_call:
+    inputs:
+      publish:
+        required: false
+        type: boolean
+        default: false
+        description: "Publish after merge (default false; set true to publish immediately)"
+  workflow_dispatch:
+    inputs:
+      publish:
+        required: false
+        type: boolean
+        default: true
+        description: "Publish after merge (default true; set false to prepare-only)"
+
+jobs:
+  convert:
+    name: Convert Math & 3D Data
+    strategy:
+      matrix:
+        include:
+          - id: 00-spiral-3d
+            file: spiral-3d
+            name: "Spiral 3D"
+            description: "Auto-value 3D spiral from x, y, z coordinates"
+            charts: line
+            chart: "line:3d-rotate,3d-visualmap"
+
+          - id: 01-noise-surface
+            file: noise-surface
+            name: "Noise Surface"
+            description: "Simplex noise height field on a 2D grid as continuous 3D"
+            charts: bar
+            chart: "bar:3d-visualmap"
+
+          - id: 02-noise-grid
+            file: noise-grid
+            name: "Noise Grid 21³"
+            description: "Simplex noise on a 3D voxel grid (21³) — position from x,y,z, color/size from value column"
+            charts: scatter
+            chart: "scatter:3d-visualmap,3d-rotate"
+
+          - id: 03-noise-grid-41
+            file: noise-grid-41
+            name: "Noise Grid 41³"
+            description: "ECharts simplex-noise scatter3D demo — full 41³ grid (0–40), orthographic camera, visualMap on value"
+            charts: scatter
+            chart: "scatter:3d-visualmap,3d-rotate"
+
+          - id: 04-clusters
+            file: clusters
+            name: "Clusters"
+            description: "2D scatter — auto-value x,y cluster points with visualMap and symbol size 10"
+            charts: scatter
+            chart: "scatter:visualmap,symbol-size=10"
+
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: ${{ matrix.name }}
+        uses: ./
+        with:
+          file: examples/csv/${{ matrix.file }}.csv
+          id: ${{ matrix.id }}
+          name: ${{ matrix.name }}
+          description: ${{ matrix.description }}
+          charts: ${{ matrix.charts }}
+          chart: ${{ matrix.chart }}
+          output-json: ${{ matrix.id }}.json
+          vizb-binary: ${{ env.ACT == 'true' && './bin/vizb' || '' }}
+
+      - name: Stage json for local merge
+        if: env.ACT == 'true'
+        env:
+          MATRIX_ID: ${{ matrix.id }}
+        run: mkdir -p .act/jsons && cp "$MATRIX_ID.json" .act/jsons/
+
+      - name: Uploading json artifacts
+        if: env.ACT != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: json-math-and-3d-${{ matrix.id }}
+          path: ${{ matrix.id }}.json
+
+  merge:
+    name: Merge Math & 3D Data
+    needs: convert
+    permissions:
+      contents: read
+    uses: ./.github/workflows/merge-examples.yml
+    with:
+      example_category: math-and-3d
+
+  publish:
+    name: Publish Math & 3D examples
+    needs: merge
+    if: >-
+      ${{
+        inputs.publish ||
+        (
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main'
+        )
+      }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/publish-site.yml
+    with:
+      artifact_pattern: site-examples-math-and-3d
+      keep_files: true
