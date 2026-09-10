@@ -1,0 +1,121 @@
+package shared
+
+import (
+	"testing"
+
+	internal_charts "github.com/goptics/vizb/internal/charts"
+	"github.com/goptics/vizb/internal/flags"
+	"github.com/goptics/vizb/internal/specparse"
+	"github.com/stretchr/testify/suite"
+)
+
+type stubChartConfig struct {
+	typ string
+}
+
+func (s stubChartConfig) ChartType() string { return s.typ }
+func (stubChartConfig) StatEnabled() bool   { return false }
+func (stubChartConfig) StatMath() []string  { return nil }
+func (stubChartConfig) SwapString() string  { return "" }
+
+func dsWith(types []string, zValues ...string) *Dataset {
+	ds := &Dataset{}
+	for _, t := range types {
+		ds.Settings = append(ds.Settings, stubChartConfig{typ: t})
+	}
+	for _, z := range zValues {
+		ds.Data = append(ds.Data, DataPoint{XAxis: "x", YAxis: "y", ZAxis: z})
+	}
+	return ds
+}
+
+func dsWithThreeDOption(chartType string) *Dataset {
+	cfg, err := internal_charts.Decode(chartType, []byte(`{"type":"`+chartType+`","threeD":true}`))
+	if err != nil {
+		panic(err)
+	}
+	return &Dataset{Settings: []internal_charts.ChartConfig{cfg}}
+}
+
+type ChartSelectionSuite struct {
+	suite.Suite
+}
+
+func (s *ChartSelectionSuite) TestChartsHave3DCapable() {
+	cases := []struct {
+		name  string
+		types []string
+		want  bool
+	}{
+		{"bar is 3D-capable", []string{"bar"}, true},
+		{"line is 3D-capable", []string{"line"}, true},
+		{"scatter is 3D-capable", []string{"scatter"}, true},
+		{"pie is not", []string{"pie"}, false},
+		{"heatmap is not", []string{"heatmap"}, false},
+		{"sankey is not", []string{"sankey"}, false},
+		{"chord is not", []string{"chord"}, false},
+		{"pie+heatmap only", []string{"pie", "heatmap"}, false},
+		{"mixed with bar", []string{"pie", "bar"}, true},
+		{"empty", nil, false},
+	}
+	for _, c := range cases {
+		s.Run(c.name, func() {
+			s.Equal(c.want, ChartsHave3DCapable(c.types))
+		})
+	}
+}
+
+func (s *ChartSelectionSuite) TestDatasetNeeds3D() {
+	cases := []struct {
+		name string
+		ds   *Dataset
+		want bool
+	}{
+		{"z + bar => needs 3D", dsWith([]string{"bar"}, "1"), true},
+		{"z + line => needs 3D", dsWith([]string{"line"}, "2"), true},
+		{"z + scatter => needs 3D", dsWith([]string{"scatter"}, "2"), true},
+		{"z but pie only => no", dsWith([]string{"pie"}, "1"), false},
+		{"z but heatmap only => no", dsWith([]string{"heatmap"}, "1"), false},
+		{"z but sankey only => no", dsWith([]string{"sankey"}, "1"), false},
+		{"bar but no z => no", dsWith([]string{"bar"}, "", ""), false},
+		{"bar but empty data => no", dsWith([]string{"bar"}), false},
+		{"mixed charts with z, one z point", dsWith([]string{"pie", "bar"}, "", "3"), true},
+		{"threeD bar without z => needs 3D", dsWithThreeDOption("bar"), true},
+		{"threeD line without z => needs 3D", dsWithThreeDOption("line"), true},
+		{"threeD scatter without z => needs 3D", dsWithThreeDOption("scatter"), true},
+		{"threeD pie without z => no", dsWithThreeDOption("pie"), false},
+		{"threeD sankey without z => no", dsWithThreeDOption("sankey"), false},
+		{"threeD chord without z => no", dsWithThreeDOption("chord"), false},
+	}
+	for _, c := range cases {
+		s.Run(c.name, func() {
+			s.Equal(c.want, DatasetNeeds3D(c.ds))
+		})
+	}
+}
+
+func (s *ChartSelectionSuite) TestConvertFlagValueValidatesIntegers() {
+	flag := flags.Flag{Name: "depth", Kind: flags.KindInt}
+	value, err := convertFlagValue(flag, specparse.Prop{Key: "depth", Value: "3", HasValue: true}, nil)
+	s.NoError(err)
+	s.Equal(3, value)
+	_, err = convertFlagValue(flag, specparse.Prop{Key: "depth", Value: "not-a-number", HasValue: true}, nil)
+	s.ErrorContains(err, "must be an integer")
+}
+
+func (s *ChartSelectionSuite) TestSankeyIsOptInNotDefault() {
+	// sankey is accepted via --charts but never a default bundle member.
+	s.Contains(ValidChartTypes, "sankey")
+	s.NotContains(DefaultChartTypes, "sankey")
+}
+
+func (s *ChartSelectionSuite) TestChordIsOptInNotDefault() {
+	s.Contains(ValidChartTypes, "chord")
+	s.NotContains(DefaultChartTypes, "chord")
+}
+
+var _ internal_charts.ChartConfig = stubChartConfig{}
+
+func TestChartSelectionSuite(t *testing.T) {
+	suite.Run(t, new(ChartSelectionSuite))
+}

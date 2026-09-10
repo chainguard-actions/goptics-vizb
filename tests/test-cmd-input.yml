@@ -1,0 +1,69 @@
+name: Test cmd input with JSON output
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create fake vizb binary
+        run: |
+          cat > /tmp/fake-vizb << 'EOF'
+          #!/bin/bash
+          # Fake vizb binary for testing
+          # Handles: <input-file> -o <output-json> [flags...]
+          OUTPUT=""
+          i=1
+          while [ $i -le $# ]; do
+            eval "arg=\${$i}"
+            if [ "$arg" = "-o" ]; then
+              i=$((i+1))
+              eval "OUTPUT=\${$i}"
+            fi
+            i=$((i+1))
+          done
+          if [ -n "$OUTPUT" ]; then
+            echo '[{"name":"cmd-test","data":[{"x":"run1","y":42}]}]' > "$OUTPUT"
+          fi
+          exit 0
+          EOF
+          chmod +x /tmp/fake-vizb
+          echo "VIZB_BIN=/tmp/fake-vizb" >> "$GITHUB_ENV"
+
+      - id: action
+        uses: .
+        with:
+          cmd: "printf 'name,value\\nrun1,42\\nrun2,84\\n'"
+          output-json: ${{ runner.temp }}/cmd-output.json
+          name: "Cmd Test"
+          parser: csv
+          vizb-binary: ${{ env.VIZB_BIN }}
+
+      - name: Assert output-file-json output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "output-file-json: $ACTUAL"
+          if [ "$ACTUAL" != "$RUNNER_TEMP/cmd-output.json" ]; then
+            echo "FAIL: expected output-file-json to be '$RUNNER_TEMP/cmd-output.json', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS: output-file-json matches"
+
+      - name: Assert JSON output file exists
+        run: |
+          OUTPUT_PATH="$RUNNER_TEMP/cmd-output.json"
+          echo "Checking: $OUTPUT_PATH"
+          if [ ! -f "$OUTPUT_PATH" ]; then
+            echo "FAIL: output JSON file does not exist at $OUTPUT_PATH"
+            exit 1
+          fi
+          CONTENT=$(cat "$OUTPUT_PATH")
+          echo "content: $CONTENT"
+          if [ -z "$CONTENT" ]; then
+            echo "FAIL: output JSON file is empty"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists with content"

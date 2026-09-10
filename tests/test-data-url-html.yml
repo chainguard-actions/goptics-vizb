@@ -1,0 +1,80 @@
+name: Test data-url input for HTML generation
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create fake vizb binary
+        run: |
+          cat > /tmp/fake-vizb << 'EOF'
+          #!/bin/bash
+          # Fake vizb binary for testing
+          # Handles ui subcommand with -U flag
+          OUTPUT=""
+          SUBCOMMAND=""
+
+          case "$1" in
+            ui|merge)
+              SUBCOMMAND="$1"
+              shift
+              ;;
+          esac
+
+          i=1
+          while [ $i -le $# ]; do
+            eval "arg=\${$i}"
+            if [ "$arg" = "-o" ]; then
+              i=$((i+1))
+              eval "OUTPUT=\${$i}"
+            fi
+            i=$((i+1))
+          done
+
+          if [ "$SUBCOMMAND" = "ui" ]; then
+            if [ -n "$OUTPUT" ]; then
+              echo '<html><body><h1>Vizb Remote Chart</h1></body></html>' > "$OUTPUT"
+            fi
+          fi
+          exit 0
+          EOF
+          chmod +x /tmp/fake-vizb
+          echo "VIZB_BIN=/tmp/fake-vizb" >> "$GITHUB_ENV"
+
+      - id: action
+        uses: .
+        with:
+          data-url: "https://example.com/data.json"
+          output-html: ${{ runner.temp }}/remote-chart.html
+          name: "Remote Data Test"
+          vizb-binary: ${{ env.VIZB_BIN }}
+
+      - name: Assert output-file-html output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "output-file-html: $ACTUAL"
+          if [ "$ACTUAL" != "$RUNNER_TEMP/remote-chart.html" ]; then
+            echo "FAIL: expected output-file-html to be '$RUNNER_TEMP/remote-chart.html', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS: output-file-html matches"
+
+      - name: Assert HTML output file exists and has content
+        run: |
+          HTML_PATH="$RUNNER_TEMP/remote-chart.html"
+          echo "Checking: $HTML_PATH"
+          if [ ! -f "$HTML_PATH" ]; then
+            echo "FAIL: HTML output file does not exist at $HTML_PATH"
+            exit 1
+          fi
+          CONTENT=$(cat "$HTML_PATH")
+          echo "content: $CONTENT"
+          if [ -z "$CONTENT" ]; then
+            echo "FAIL: HTML output file is empty"
+            exit 1
+          fi
+          echo "PASS: HTML output file exists with content"

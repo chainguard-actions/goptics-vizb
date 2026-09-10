@@ -1,0 +1,70 @@
+# .goreleaser.yml
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: vizb
+    binary: vizb
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/goptics/vizb/version.Version={{.Tag}}
+      - -X github.com/goptics/vizb/version.Distribution=standalone
+    main: .
+
+dockers_v2:
+  - id: vizb
+    ids:
+      - vizb
+    dockerfile: Dockerfile
+    images:
+      - goptics/vizb
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .IsSnapshot }}{{ .Major }}.{{ .Minor }}{{ end }}"
+      - "{{ if not .IsSnapshot }}{{ .Major }}{{ end }}"
+      - "{{ if not .IsSnapshot }}latest{{ end }}"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      org.opencontainers.image.source: https://github.com/goptics/vizb
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.licenses: MIT
+      org.opencontainers.image.description: A tabular data visualization engine for CSV, JSON, and benchmark output
+    flags:
+      - --target=release
+
+archives:
+  - formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}@{{ .Version }}-{{ .Os }}-{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+changelog:
+  sort: desc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: "{{ .Tag }}-next"

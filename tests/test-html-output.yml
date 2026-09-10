@@ -1,0 +1,117 @@
+name: Test HTML output generation
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create fake vizb binary
+        run: |
+          cat > /tmp/fake-vizb << 'EOF'
+          #!/bin/bash
+          # Fake vizb binary for testing
+          # Handles both convert and ui subcommands
+          OUTPUT=""
+          SUBCOMMAND=""
+
+          # Check if first arg is a subcommand
+          case "$1" in
+            ui|merge)
+              SUBCOMMAND="$1"
+              shift
+              ;;
+          esac
+
+          i=1
+          while [ $i -le $# ]; do
+            eval "arg=\${$i}"
+            if [ "$arg" = "-o" ]; then
+              i=$((i+1))
+              eval "OUTPUT=\${$i}"
+            fi
+            i=$((i+1))
+          done
+
+          if [ "$SUBCOMMAND" = "ui" ]; then
+            if [ -n "$OUTPUT" ]; then
+              echo '<html><body><h1>Vizb Chart</h1></body></html>' > "$OUTPUT"
+            fi
+          else
+            if [ -n "$OUTPUT" ]; then
+              echo '[{"name":"html-test","data":[{"x":"A","y":1}]}]' > "$OUTPUT"
+            fi
+          fi
+          exit 0
+          EOF
+          chmod +x /tmp/fake-vizb
+          echo "VIZB_BIN=/tmp/fake-vizb" >> "$GITHUB_ENV"
+
+      - name: Create CSV input file
+        run: |
+          cat > "$RUNNER_TEMP/data.csv" << 'EOF'
+          label,score
+          Alpha,95
+          Beta,87
+          Gamma,72
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          file: ${{ runner.temp }}/data.csv
+          output-json: ${{ runner.temp }}/report.json
+          output-html: ${{ runner.temp }}/report.html
+          name: "HTML Test"
+          charts: bar
+          vizb-binary: ${{ env.VIZB_BIN }}
+
+      - name: Assert output-file-html output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "output-file-html: $ACTUAL"
+          if [ "$ACTUAL" != "$RUNNER_TEMP/report.html" ]; then
+            echo "FAIL: expected output-file-html to be '$RUNNER_TEMP/report.html', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS: output-file-html matches"
+
+      - name: Assert output-file-json output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "output-file-json: $ACTUAL"
+          if [ "$ACTUAL" != "$RUNNER_TEMP/report.json" ]; then
+            echo "FAIL: expected output-file-json to be '$RUNNER_TEMP/report.json', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS: output-file-json matches"
+
+      - name: Assert HTML output file exists and has content
+        run: |
+          HTML_PATH="$RUNNER_TEMP/report.html"
+          echo "Checking: $HTML_PATH"
+          if [ ! -f "$HTML_PATH" ]; then
+            echo "FAIL: HTML output file does not exist at $HTML_PATH"
+            exit 1
+          fi
+          CONTENT=$(cat "$HTML_PATH")
+          echo "content: $CONTENT"
+          if [ -z "$CONTENT" ]; then
+            echo "FAIL: HTML output file is empty"
+            exit 1
+          fi
+          echo "PASS: HTML output file exists with content"
+
+      - name: Assert JSON output file exists
+        run: |
+          JSON_PATH="$RUNNER_TEMP/report.json"
+          echo "Checking: $JSON_PATH"
+          if [ ! -f "$JSON_PATH" ]; then
+            echo "FAIL: JSON output file does not exist at $JSON_PATH"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
