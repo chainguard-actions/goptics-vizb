@@ -125,7 +125,7 @@ runs:
     - name: Cache vizb binary
       if: steps.version.outputs.is-major != 'true'
       id: cache-vizb
-      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+      uses: chainguard-actions/actions-cache@dc4b8a9beaba8dd7fead89b3b3df02fb4bc6336a # v5
       with:
         path: ~/.local/bin/vizb
         key: vizb-${{ steps.version.outputs.tag }}-${{ runner.os }}-${{ runner.arch }}
@@ -135,14 +135,14 @@ runs:
       env:
         RUNNER_OS: ${{ runner.os }}
         RUNNER_ARCH: ${{ runner.arch }}
-        INPUT_TAG: ${{ steps.version.outputs.tag }}
+        VIZB_TAG: ${{ steps.version.outputs.tag }}
       run: |
         OS=$(echo "$RUNNER_OS" | tr '[:upper:]' '[:lower:]')
         [ "$OS" = "macos" ] && OS="darwin"
         ARCH=$(echo "$RUNNER_ARCH" | tr '[:upper:]' '[:lower:]')
         [ "$ARCH" = "x64" ] && ARCH="amd64"
 
-        TAG="$INPUT_TAG"
+        TAG="$VIZB_TAG"
         VERSION="${TAG#v}"
         EXT=".tar.gz"
         [ "$OS" = "windows" ] && EXT=".zip"
@@ -205,8 +205,8 @@ runs:
 
         OUT_JSON="$INPUT_OUTPUT_JSON"
         if [ -n "$OUT_JSON" ]; then
-          safe_out=$(printf '%s' "$OUT_JSON" | tr -d '\n\r')
-          echo "json_file=$safe_out" >> "$GITHUB_OUTPUT"
+          safe_json=$(printf '%s' "$OUT_JSON" | tr -d '\n\r')
+          echo "json_file=$safe_json" >> "$GITHUB_OUTPUT"
         else
           echo "json_file=bench.json" >> "$GITHUB_OUTPUT"
         fi
@@ -255,7 +255,13 @@ runs:
         if [ "$RESOLVE_SOURCE" = "file" ]; then
           cp "$INPUT_BENCH_FILE" bench-input.txt
         else
-          sh -c "$INPUT_BENCH_CMD" > bench-input.txt
+          # Tokenize bench-cmd into an array using xargs for quote-aware splitting
+          cmd_args=()
+          if [ -n "$INPUT_BENCH_CMD" ]; then
+            while IFS= read -r -d '' t; do cmd_args+=("$t"); done \
+              < <(printf '%s' "$INPUT_BENCH_CMD" | xargs printf '%s\0')
+          fi
+          "${cmd_args[@]}" > bench-input.txt
         fi
 
         vizb bench-input.txt -o "$RESOLVE_JSON_FILE" "${VIZB_ARGS[@]}"
@@ -273,7 +279,10 @@ runs:
         JSON_FILE="$RESOLVE_JSON_FILE"
         FILES=()
         [ -f "$JSON_FILE" ] && FILES+=("$JSON_FILE")
-        [ -n "$INPUT_MERGE_FILES" ] && read -ra EXTRA_FILES <<< "$INPUT_MERGE_FILES" && FILES+=("${EXTRA_FILES[@]}")
+        if [ -n "$INPUT_MERGE_FILES" ]; then
+          while IFS= read -r -d '' t; do FILES+=("$t"); done \
+            < <(printf '%s' "$INPUT_MERGE_FILES" | xargs printf '%s\0')
+        fi
         [ -n "$INPUT_MERGE_DIR" ] && FILES+=("$INPUT_MERGE_DIR")
         vizb merge "${FILES[@]}" -o "$JSON_FILE" --tag-axis "$INPUT_TAG_AXIS"
     # ── Generate html  ────────────────────────────────────────

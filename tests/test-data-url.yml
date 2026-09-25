@@ -1,0 +1,45 @@
+name: Test data-url HTML generation
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          data-url: "https://example.com/bench.json"
+          output-html: /tmp/bench-dataurl.html
+          name: "RemoteBenchmarks"
+
+      - name: Assert HTML output file exists
+        run: |
+          echo "Checking for HTML output at /tmp/bench-dataurl.html"
+          if [ ! -f "/tmp/bench-dataurl.html" ]; then
+            echo "FAIL: HTML output file not found"
+            exit 1
+          fi
+          echo "PASS: HTML output file exists"
+
+      - name: Assert HTML output contains expected content
+        run: |
+          if ! grep -q "<html" /tmp/bench-dataurl.html 2>/dev/null; then
+            echo "FAIL: HTML output does not contain <html tag"
+            head -5 /tmp/bench-dataurl.html
+            exit 1
+          fi
+          echo "PASS: HTML output contains expected content"
+
+      - name: Assert output-file-html output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/bench-dataurl.html" ]; then
+            echo "FAIL: expected '/tmp/bench-dataurl.html', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

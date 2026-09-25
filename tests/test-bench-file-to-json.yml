@@ -1,0 +1,56 @@
+name: Test bench-file to JSON
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create benchmark input file
+        run: |
+          cat > /tmp/bench-input.txt << 'EOF'
+          goos: linux
+          goarch: amd64
+          pkg: example
+          BenchmarkAdd-4   	10000000	       120 ns/op	       0 B/op	       0 allocs/op
+          BenchmarkMul-4   	 5000000	       240 ns/op	       0 B/op	       0 allocs/op
+          PASS
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          bench-file: /tmp/bench-input.txt
+          name: "MyBenchmarks"
+          output-json: /tmp/bench-output.json
+
+      - name: Assert JSON output file exists
+        run: |
+          echo "Checking for JSON output at /tmp/bench-output.json"
+          if [ ! -f "/tmp/bench-output.json" ]; then
+            echo "FAIL: JSON output file not found"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert JSON output is valid JSON
+        run: |
+          if ! cat /tmp/bench-output.json | python3 -m json.tool > /dev/null 2>&1; then
+            echo "FAIL: output is not valid JSON"
+            cat /tmp/bench-output.json
+            exit 1
+          fi
+          echo "PASS: output is valid JSON"
+
+      - name: Assert output-file-json output matches
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/bench-output.json" ]; then
+            echo "FAIL: expected '/tmp/bench-output.json', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
