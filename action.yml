@@ -133,15 +133,17 @@ runs:
       shell: bash
       env:
         INPUT_VIZB_BINARY: ${{ inputs.vizb-binary }}
-        ACTION_REF: ${{ github.action_ref }}
+        GITHUB_ACTION_REF: ${{ github.action_ref }}
       run: |
         if [ -n "$INPUT_VIZB_BINARY" ]; then
-          echo "tag=local" >> "$GITHUB_OUTPUT"
-          echo "is-major=false" >> "$GITHUB_OUTPUT"
+          safe_tag=$(printf '%s' "local" | tr -d '\n\r')
+          echo "tag=$safe_tag" >> "$GITHUB_OUTPUT"
+          safe_is_major=$(printf '%s' "false" | tr -d '\n\r')
+          echo "is-major=$safe_is_major" >> "$GITHUB_OUTPUT"
           exit 0
         fi
 
-        REF="$ACTION_REF"
+        REF="$GITHUB_ACTION_REF"
         if [ -z "$REF" ]; then
           REF="v0"
         fi
@@ -162,7 +164,7 @@ runs:
     - name: Cache vizb binary
       if: steps.version.outputs.is-major != 'true' && inputs.vizb-binary == ''
       id: cache-vizb
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      uses: chainguard-actions/actions-cache@38c9e2f39b3b539d2c7bdb22ccc9cb381ee084b7 # v6
       with:
         path: ~/.local/bin/vizb
         key: vizb-${{ steps.version.outputs.tag }}-${{ runner.os }}-${{ runner.arch }}
@@ -171,8 +173,8 @@ runs:
       shell: bash
       env:
         INPUT_VIZB_BINARY: ${{ inputs.vizb-binary }}
-        RUNNER_OS_INPUT: ${{ runner.os }}
-        RUNNER_ARCH_INPUT: ${{ runner.arch }}
+        RUNNER_OS: ${{ runner.os }}
+        RUNNER_ARCH: ${{ runner.arch }}
         VERSION_TAG: ${{ steps.version.outputs.tag }}
       run: |
         mkdir -p ~/.local/bin
@@ -185,9 +187,9 @@ runs:
           exit 0
         fi
 
-        OS=$(echo "$RUNNER_OS_INPUT" | tr '[:upper:]' '[:lower:]')
+        OS=$(echo "$RUNNER_OS" | tr '[:upper:]' '[:lower:]')
         [ "$OS" = "macos" ] && OS="darwin"
-        ARCH=$(echo "$RUNNER_ARCH_INPUT" | tr '[:upper:]' '[:lower:]')
+        ARCH=$(echo "$RUNNER_ARCH" | tr '[:upper:]' '[:lower:]')
         [ "$ARCH" = "x64" ] && ARCH="amd64"
 
         TAG="$VERSION_TAG"
@@ -259,14 +261,14 @@ runs:
           exit 1
         fi
 
-        safe_file=$(printf '%s' "$FILE" | tr -d '\n\r')
-        safe_cmd=$(printf '%s' "$CMD" | tr -d '\n\r')
         {
           echo "file<<__VIZB_EOF__"
-          echo "$safe_file"
+          printf '%s' "$FILE" | tr -d '\n\r'
+          echo ""
           echo "__VIZB_EOF__"
           echo "cmd<<__VIZB_EOF__"
-          echo "$safe_cmd"
+          printf '%s' "$CMD" | tr -d '\n\r'
+          echo ""
           echo "__VIZB_EOF__"
         } >> "$GITHUB_OUTPUT"
 
@@ -340,19 +342,17 @@ runs:
       id: merge
       shell: bash
       env:
-        RESOLVE_JSON_FILE: ${{ steps.resolve.outputs.json_file }}
         INPUT_MERGE_FILES: ${{ inputs.merge-files }}
         INPUT_MERGE_DIR: ${{ inputs.merge-dir }}
         INPUT_TAG_AXIS: ${{ inputs.tag-axis }}
+        RESOLVE_JSON_FILE: ${{ steps.resolve.outputs.json_file }}
       run: |
         JSON_FILE="$RESOLVE_JSON_FILE"
         FILES=()
         [ -f "$JSON_FILE" ] && FILES+=("$JSON_FILE")
         if [ -n "$INPUT_MERGE_FILES" ]; then
-          # Safely split space-separated list of paths without glob expansion
-          while IFS= read -r -d '' merge_file; do
-            [ -n "$merge_file" ] && FILES+=("$merge_file")
-          done < <(printf '%s' "$INPUT_MERGE_FILES" | tr ' ' '\0')
+          while IFS= read -r -d '' t; do FILES+=("$t"); done \
+            < <(printf '%s' "$INPUT_MERGE_FILES" | xargs printf '%s\0')
         fi
         [ -n "$INPUT_MERGE_DIR" ] && FILES+=("$INPUT_MERGE_DIR")
         vizb merge "${FILES[@]}" -o "$JSON_FILE" --tag-axis "$INPUT_TAG_AXIS"
