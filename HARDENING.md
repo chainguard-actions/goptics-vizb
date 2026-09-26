@@ -10,97 +10,109 @@
 
 **Harden Agent Version:** `2`
 
-Action **goptics--vizb/v0.13.0** was hardened automatically. 58 finding(s) were identified and resolved across 2 iteration(s).
+Action **goptics--vizb/v0.13.0** was hardened automatically. 57 finding(s) were identified and resolved across 1 iteration(s).
 
 ## Findings Fixed
 
 ### script-injection (severity: high)
 
-action.yml has pervasive direct interpolation of ${{ ... }} expressions inside run: blocks, violating rule (a). This includes:
-- 'Resolve vizb version' step: REF="${{ github.action_ref }}" interpolated directly in shell
-- 'Install vizb' step: VIZB_BINARY="${{ inputs.vizb-binary }}", OS=$(echo "${{ runner.os }}" ...), ARCH=$(echo "${{ runner.arch }}" ...), TAG="${{ steps.version.outputs.tag }}"
-- 'Resolve input' step: FILE="${{ inputs.file }}", FILE="${{ inputs.bench-file }}", CMD="${{ inputs.cmd }}", CMD="${{ inputs.bench-cmd }}", ${{ inputs.merge-files }}, ${{ inputs.merge-dir }}, ${{ inputs.data-url }}, ${{ inputs.output-json }}
-- 'Convert to JSON' step: All inputs interpolated directly, and most critically ${{ steps.resolve.outputs.cmd }} is executed directly as a shell command (arbitrary command injection)
-- 'Merge' step: ${{ inputs.merge-files }} is unquoted in shell expansion (rule b violation), plus ${{ inputs.merge-dir }}, ${{ inputs.tag-axis }}
-- 'Generate HTML' step: ${{ inputs.charts }}, ${{ inputs.chart }}, ${{ inputs.stat }}, ${{ inputs.enable-3d }}, ${{ inputs.data-url }}, ${{ inputs.output-html }}, ${{ steps.resolve.outputs.json_file }}
+Multiple `run:` blocks in action.yml directly interpolate `${{ }}` expressions inside shell commands, violating rule (a). This allows an attacker who controls inputs to inject arbitrary shell commands.
+
+1. **'Resolve vizb version' step**: `REF="${{ github.action_ref }}"` — github context interpolated directly in shell.
+
+2. **'Install vizb' step**: `VIZB_BINARY="${{ inputs.vizb-binary }}"`, `OS=$(echo "${{ runner.os }}" | ...)`, `ARCH=$(echo "${{ runner.arch }}" | ...)`, `TAG="${{ steps.version.outputs.tag }}"` — all interpolated directly in shell.
+
+3. **'Resolve input' step**: `FILE="${{ inputs.file }}"`, `FILE="${{ inputs.bench-file }}"`, `CMD="${{ inputs.cmd }}"`, `CMD="${{ inputs.bench-cmd }}"`, `${{ inputs.merge-files }}`, `${{ inputs.merge-dir }}`, `${{ inputs.data-url }}`, `${{ inputs.output-json }}` — all interpolated directly in shell.
+
+4. **'Convert to JSON' step**: `${{ inputs.tag }}`, `${{ inputs.name }}`, `${{ inputs.description }}`, `${{ inputs.group }}`, `${{ inputs.group-pattern }}`, `${{ inputs.group-regex }}`, `${{ inputs.sort }}`, `${{ inputs.filter }}`, `${{ inputs.mem-unit }}`, `${{ inputs.time-unit }}`, `${{ inputs.number-unit }}`, `${{ inputs.select }}`, `${{ inputs.json-path }}`, `${{ inputs.show-labels }}`, `${{ inputs.parser }}`, `${{ inputs.charts }}`, `${{ inputs.chart }}`, `${{ inputs.stat }}` — all interpolated directly. Critically, `${{ steps.resolve.outputs.cmd }} > data-input.txt` executes the resolved cmd output as a shell command directly.
+
+5. **'Merge' step**: `${{ steps.resolve.outputs.json_file }}`, `${{ inputs.merge-files }}` (unquoted — rule b violation, allows word splitting/glob), `${{ inputs.merge-dir }}`, `${{ inputs.tag-axis }}` — all interpolated directly.
+
+6. **'Generate HTML' step**: `${{ inputs.charts }}`, `${{ inputs.chart }}`, `${{ inputs.stat }}`, `${{ inputs.enable-3d }}`, `${{ inputs.data-url }}`, `${{ inputs.output-html }}`, `${{ steps.resolve.outputs.json_file }}` — all interpolated directly.
 
 Locations:
 
 - `action.yml:100`
+- `action.yml:113`
+- `action.yml:118`
 - `action.yml:120`
+- `action.yml:125`
 - `action.yml:148`
+- `action.yml:149`
+- `action.yml:151`
+- `action.yml:152`
+- `action.yml:157`
+- `action.yml:158`
+- `action.yml:159`
+- `action.yml:168`
 - `action.yml:175`
-- `action.yml:210`
-- `action.yml:240`
+- `action.yml:185`
+- `action.yml:186`
+- `action.yml:187`
+- `action.yml:188`
+- `action.yml:189`
+- `action.yml:190`
+- `action.yml:191`
+- `action.yml:192`
+- `action.yml:193`
+- `action.yml:194`
+- `action.yml:195`
+- `action.yml:196`
+- `action.yml:197`
+- `action.yml:198`
+- `action.yml:199`
+- `action.yml:200`
+- `action.yml:203`
+- `action.yml:205`
+- `action.yml:208`
+- `action.yml:213`
+- `action.yml:214`
+- `action.yml:215`
+- `action.yml:216`
+- `action.yml:222`
+- `action.yml:223`
+- `action.yml:224`
+- `action.yml:225`
+- `action.yml:226`
+- `action.yml:227`
 
 ### github-env-injection (severity: high)
 
-action.yml writes unsanitized values derived from untrusted inputs and github context to $GITHUB_OUTPUT and $GITHUB_PATH without the required sanitization step (printf '%s' ... | tr -d '\n\r'):
-- 'Resolve vizb version' step: echo "tag=$REF" >> "$GITHUB_OUTPUT" and echo "tag=$TAG" >> "$GITHUB_OUTPUT" where REF comes from ${{ github.action_ref }}
-- 'Resolve input' step: writes $FILE (from ${{ inputs.file }}/${{ inputs.bench-file }}), $CMD (from ${{ inputs.cmd }}/${{ inputs.bench-cmd }}), and $OUT_JSON (from ${{ inputs.output-json }}) to $GITHUB_OUTPUT using heredoc multiline syntax without sanitization
+Multiple `run:` blocks write values derived from untrusted inputs to `$GITHUB_OUTPUT` and `$GITHUB_PATH` without the required sanitization step (`printf '%s' ... | tr -d '\n\r'`).
+
+1. **'Resolve vizb version' step**: `echo "tag=$TAG" >> "$GITHUB_OUTPUT"` and `echo "tag=$REF" >> "$GITHUB_OUTPUT"` — `$TAG`/`$REF` are derived from `${{ github.action_ref }}` without sanitization. A newline in the ref could inject arbitrary key=value pairs into GITHUB_OUTPUT.
+
+2. **'Resolve input' step**: `$FILE` (from `${{ inputs.file }}` / `${{ inputs.bench-file }}`) and `$CMD` (from `${{ inputs.cmd }}` / `${{ inputs.bench-cmd }}`) are written to `$GITHUB_OUTPUT` via `echo "$FILE"` and `echo "$CMD"` without sanitization. `$OUT_JSON` (from `${{ inputs.output-json }}`) is written as `echo "json_file=$OUT_JSON" >> "$GITHUB_OUTPUT"` without sanitization.
+
+3. **'Install vizb' step**: `echo "$HOME/.local/bin" >> "$GITHUB_PATH"` — while `$HOME` is typically safe, the step context is set up using unsanitized `${{ inputs.vizb-binary }}` which could influence the execution path.
 
 Locations:
 
 - `action.yml:100`
+- `action.yml:104`
+- `action.yml:106`
+- `action.yml:131`
 - `action.yml:148`
+- `action.yml:149`
+- `action.yml:151`
+- `action.yml:152`
+- `action.yml:160`
+- `action.yml:163`
+- `action.yml:168`
+- `action.yml:170`
+- `action.yml:175`
 
 ### unpinned-uses (severity: high)
 
-Multiple uses: references use mutable version tags instead of full 40-character SHA commit hashes, making the action vulnerable to supply-chain attacks if a tag is moved or a dependency is compromised.
+The composite action uses `actions/cache@v6` which is pinned to a mutable version tag rather than an immutable 40-character commit SHA. This means the action could be silently updated to a malicious version without any change to this repository.
 
-action.yml: actions/cache@v6
+Failing reference: `uses: actions/cache@v6`
 
-.github/workflows/action-ci.yml: actions/checkout@v7, actions/setup-go@v6
-.github/workflows/cli.yml: actions/checkout@v7, actions/setup-go@v6, golangci/golangci-lint-action@v9, codecov/codecov-action@v7
-.github/workflows/deploy-docs.yml: actions/checkout@v7, pnpm/action-setup@v6, actions/setup-node@v6, peaceiris/actions-gh-pages@v4
-.github/workflows/deploy-examples-csv.yml: actions/checkout@v7, actions/upload-artifact@v7
-.github/workflows/deploy-examples-go.yml: actions/checkout@v7, actions/upload-artifact@v7
-.github/workflows/deploy-examples-javascript.yml: actions/checkout@v7, actions/upload-artifact@v7
-.github/workflows/deploy-examples-json.yml: actions/checkout@v7, actions/upload-artifact@v7
-.github/workflows/deploy-examples-rust.yml: actions/checkout@v7, actions/upload-artifact@v7
-.github/workflows/merge-deploy-examples.yml: actions/checkout@v7, actions/download-artifact@v8, peaceiris/actions-gh-pages@v4
-.github/workflows/release.yml: actions/checkout@v7, trstringer/manual-approval@v1, actions/setup-go@v6, goreleaser/goreleaser-action@v7, vedantmgoyal2009/winget-releaser@v2
-.github/workflows/ui.yml: actions/checkout@v7, pnpm/action-setup@v6, actions/setup-node@v6, actions/setup-go@v6
-.github/workflows/winget.yml: vedantmgoyal2009/winget-releaser@v2
+Fix: pin to a full SHA, e.g. `uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3`
 
 Locations:
 
-- `action.yml:113`
-- `.github/workflows/action-ci.yml:13`
-- `.github/workflows/cli.yml:27`
-- `.github/workflows/deploy-docs.yml:16`
-- `.github/workflows/deploy-examples-csv.yml:57`
-- `.github/workflows/deploy-examples-go.yml:54`
-- `.github/workflows/deploy-examples-javascript.yml:37`
-- `.github/workflows/deploy-examples-json.yml:33`
-- `.github/workflows/deploy-examples-rust.yml:34`
-- `.github/workflows/merge-deploy-examples.yml:20`
-- `.github/workflows/release.yml:18`
-- `.github/workflows/ui.yml:22`
-- `.github/workflows/winget.yml:10`
-
-### missing-permissions (severity: medium)
-
-The following workflow files have no top-level permissions: block and contain at least one job without a job-level permissions: block, meaning they run with the default (potentially broad) token permissions:
-- action-ci.yml: no top-level permissions, neither 'stateless' nor 'stateful' jobs have permissions
-- cli.yml: no top-level permissions, none of the lint/format/test/action jobs have permissions
-- ui.yml: no top-level permissions, none of the lint/format/test/build jobs have permissions
-- deploy-examples-csv.yml: no top-level permissions; the 'convert' job has no permissions block
-- deploy-examples-go.yml: no top-level permissions; the 'convert' job has no permissions block
-- deploy-examples-javascript.yml: no top-level permissions; the 'convert' job has no permissions block
-- deploy-examples-json.yml: no top-level permissions; the 'convert' job has no permissions block
-- deploy-examples-rust.yml: no top-level permissions; the 'convert' job has no permissions block
-
-Locations:
-
-- `.github/workflows/action-ci.yml:1`
-- `.github/workflows/cli.yml:1`
-- `.github/workflows/ui.yml:1`
-- `.github/workflows/deploy-examples-csv.yml:1`
-- `.github/workflows/deploy-examples-go.yml:1`
-- `.github/workflows/deploy-examples-javascript.yml:1`
-- `.github/workflows/deploy-examples-json.yml:1`
-- `.github/workflows/deploy-examples-rust.yml:1`
+- `action.yml:109`
 
 ### static-inline-injection (severity: high)
 
@@ -538,25 +550,14 @@ Locations:
 
 ### Iteration 1
 
-**Fixes applied:** script-injection, github-env-injection, unpinned-uses, missing-permissions, static-inline-injection
+**Fixes applied:** script-injection, static-inline-injection, github-env-injection, unpinned-uses
 
 **Notes:**
 
-Fixed all findings in action.yml and all .github/workflows/*.yml files:
-
-1. script-injection/static-inline-injection: Moved all ${{ }} expressions from run: blocks into env: blocks across all 5 steps in action.yml (Resolve vizb version, Install vizb, Resolve input, Convert to JSON, Merge, Generate HTML). The dangerous direct execution of ${{ steps.resolve.outputs.cmd }} was replaced with bash -c "$RESOLVE_CMD" where RESOLVE_CMD is set via env:.
-
-2. github-env-injection: Added printf '%s' "$VAR" | tr -d '\n\r' sanitization for all values written to $GITHUB_OUTPUT that derive from github.action_ref, inputs.file, inputs.bench-file, inputs.cmd, inputs.bench-cmd, and inputs.output-json.
-
-3. unpinned-uses: Pinned all 13 action references across action.yml and all 12 workflow files to full 40-character SHA commit hashes with version tag comments.
-
-4. missing-permissions: Added top-level permissions: {} and job-level permissions: contents: read blocks to action-ci.yml, cli.yml, ui.yml, deploy-examples-csv.yml, deploy-examples-go.yml, deploy-examples-javascript.yml, deploy-examples-json.yml, and deploy-examples-rust.yml.
-
-### Iteration 2
-
-**Fixes applied:** script-injection
-
-**Notes:**
-
-Fixed script injection in `.github/workflows/merge-deploy-examples.yml` at the 'Prepare output directory' step. Moved `${{ inputs.language }}` out of the `run:` shell command into an `env:` block as `LANGUAGE`, and updated the shell command to use `"dist/examples/$LANGUAGE"` (double-quoted) instead of the direct expression interpolation.
+Rewrote action.yml to fix all findings:
+1. unpinned-uses: Pinned actions/cache@v6 to full SHA 55cc8345863c7cc4c66a329aec7e433d2d1c52a9 with # v6 comment.
+2. script-injection / static-inline-injection: Moved all ${{ }} expressions from run: blocks into env: blocks across all 6 steps (Resolve vizb version, Install vizb, Resolve input, Convert to JSON, Merge, Generate HTML). All inputs and context values are now referenced as plain shell variables.
+3. github-env-injection: Added tr -d '\n\r' sanitization for all values written to $GITHUB_OUTPUT (action_ref→tag, file, cmd, output-json/json_file).
+4. For merge-files (space-separated list input): used xargs-based tokenization loop to safely split into array elements without collapsing into a single argument.
+5. The intentional user-command execution (cmd input) uses eval "$RESOLVE_CMD" after the value has been moved to an env var — this preserves the action's intended behavior while eliminating the direct ${{ }} interpolation in the shell string.
 
