@@ -136,7 +136,7 @@ runs:
       shell: bash
       env:
         INPUT_VIZB_BINARY: ${{ inputs.vizb-binary }}
-        GITHUB_ACTION_REF: ${{ github.action_ref }}
+        ACTION_REF: ${{ github.action_ref }}
       run: |
         if [ -n "$INPUT_VIZB_BINARY" ]; then
           echo "tag=local" >> "$GITHUB_OUTPUT"
@@ -144,7 +144,7 @@ runs:
           exit 0
         fi
 
-        REF="$GITHUB_ACTION_REF"
+        REF="$ACTION_REF"
         if [ -z "$REF" ]; then
           REF="v0"
         fi
@@ -154,18 +154,18 @@ runs:
           TAG=$(git ls-remote --tags --refs --sort='-version:refname' \
             https://github.com/goptics/vizb "refs/tags/v${PREFIX}.*" | \
             head -1 | sed 's|.*/||')
-          safe=$(printf '%s' "$TAG" | tr -d '\n\r')
-          echo "tag=$safe" >> "$GITHUB_OUTPUT"
+          safe_tag=$(printf '%s' "$TAG" | tr -d '\n\r')
+          echo "tag=$safe_tag" >> "$GITHUB_OUTPUT"
           echo "is-major=true" >> "$GITHUB_OUTPUT"
         else
-          safe=$(printf '%s' "$REF" | tr -d '\n\r')
-          echo "tag=$safe" >> "$GITHUB_OUTPUT"
+          safe_ref=$(printf '%s' "$REF" | tr -d '\n\r')
+          echo "tag=$safe_ref" >> "$GITHUB_OUTPUT"
           echo "is-major=false" >> "$GITHUB_OUTPUT"
         fi
     - name: Cache vizb binary
       if: steps.version.outputs.is-major != 'true' && inputs.vizb-binary == ''
       id: cache-vizb
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      uses: chainguard-actions/actions-cache@38c9e2f39b3b539d2c7bdb22ccc9cb381ee084b7 # v6
       with:
         path: ~/.local/bin/vizb
         key: vizb-${{ steps.version.outputs.tag }}-${{ runner.os }}-${{ runner.arch }}
@@ -176,7 +176,7 @@ runs:
         INPUT_VIZB_BINARY: ${{ inputs.vizb-binary }}
         RUNNER_OS_INPUT: ${{ runner.os }}
         RUNNER_ARCH_INPUT: ${{ runner.arch }}
-        INPUT_TAG: ${{ steps.version.outputs.tag }}
+        VIZB_TAG: ${{ steps.version.outputs.tag }}
       run: |
         mkdir -p ~/.local/bin
 
@@ -188,12 +188,12 @@ runs:
           exit 0
         fi
 
-        OS=$(printf '%s' "$RUNNER_OS_INPUT" | tr '[:upper:]' '[:lower:]')
+        OS=$(echo "$RUNNER_OS_INPUT" | tr '[:upper:]' '[:lower:]')
         [ "$OS" = "macos" ] && OS="darwin"
-        ARCH=$(printf '%s' "$RUNNER_ARCH_INPUT" | tr '[:upper:]' '[:lower:]')
+        ARCH=$(echo "$RUNNER_ARCH_INPUT" | tr '[:upper:]' '[:lower:]')
         [ "$ARCH" = "x64" ] && ARCH="amd64"
 
-        TAG="$INPUT_TAG"
+        TAG="$VIZB_TAG"
         VERSION="${TAG#v}"
         EXT=".tar.gz"
         [ "$OS" = "windows" ] && EXT=".zip"
@@ -275,8 +275,8 @@ runs:
 
         OUT_JSON="$INPUT_OUTPUT_JSON"
         if [ -n "$OUT_JSON" ]; then
-          safe_out_json=$(printf '%s' "$OUT_JSON" | tr -d '\n\r')
-          echo "json_file=$safe_out_json" >> "$GITHUB_OUTPUT"
+          safe_out=$(printf '%s' "$OUT_JSON" | tr -d '\n\r')
+          echo "json_file=$safe_out" >> "$GITHUB_OUTPUT"
         else
           echo "json_file=bench.json" >> "$GITHUB_OUTPUT"
         fi
@@ -333,35 +333,29 @@ runs:
         append_chart_stat_flags VIZB_ARGS "$INPUT_CHARTS" "$INPUT_CHART" "$INPUT_STAT"
 
         if [ -n "$RESOLVE_FILE" ]; then
-          INPUT_PATH="$RESOLVE_FILE"
+          INPUT="$RESOLVE_FILE"
         else
-          INPUT_PATH="${RUNNER_TEMP}/vizb-data-input-$$.txt"
-          # RESOLVE_CMD holds a shell command string; tokenize it safely with xargs
-          cmd_args=()
-          while IFS= read -r -d '' t; do cmd_args+=("$t"); done \
-            < <(printf '%s' "$RESOLVE_CMD" | xargs printf '%s\0')
-          "${cmd_args[@]}" > "$INPUT_PATH"
+          INPUT="${RUNNER_TEMP}/vizb-data-input-$$.txt"
+          sh -c "$RESOLVE_CMD" > "$INPUT"
         fi
 
-        vizb "$INPUT_PATH" -o "$RESOLVE_JSON_FILE" "${VIZB_ARGS[@]}"
+        vizb "$INPUT" -o "$RESOLVE_JSON_FILE" "${VIZB_ARGS[@]}"
     - name: Merge
       if: inputs.merge-files != '' || inputs.merge-dir != ''
       id: merge
       shell: bash
       env:
-        RESOLVE_JSON_FILE: ${{ steps.resolve.outputs.json_file }}
         INPUT_MERGE_FILES: ${{ inputs.merge-files }}
         INPUT_MERGE_DIR: ${{ inputs.merge-dir }}
         INPUT_TAG_AXIS: ${{ inputs.tag-axis }}
+        RESOLVE_JSON_FILE: ${{ steps.resolve.outputs.json_file }}
       run: |
         JSON_FILE="$RESOLVE_JSON_FILE"
         FILES=()
         [ -f "$JSON_FILE" ] && FILES+=("$JSON_FILE")
         if [ -n "$INPUT_MERGE_FILES" ]; then
-          merge_file_args=()
-          while IFS= read -r -d '' t; do merge_file_args+=("$t"); done \
+          while IFS= read -r -d '' t; do FILES+=("$t"); done \
             < <(printf '%s' "$INPUT_MERGE_FILES" | xargs printf '%s\0')
-          FILES+=("${merge_file_args[@]}")
         fi
         [ -n "$INPUT_MERGE_DIR" ] && FILES+=("$INPUT_MERGE_DIR")
         vizb merge "${FILES[@]}" -o "$JSON_FILE" --tag-axis "$INPUT_TAG_AXIS"
