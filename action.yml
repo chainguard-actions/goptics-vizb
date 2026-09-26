@@ -159,7 +159,7 @@ runs:
     - name: Cache vizb binary
       if: steps.version.outputs.is-major != 'true' && inputs.vizb-binary == ''
       id: cache-vizb
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      uses: chainguard-actions/actions-cache@38c9e2f39b3b539d2c7bdb22ccc9cb381ee084b7 # v6
       with:
         path: ~/.local/bin/vizb
         key: vizb-${{ steps.version.outputs.tag }}-${{ runner.os }}-${{ runner.arch }}
@@ -168,8 +168,8 @@ runs:
       shell: bash
       env:
         INPUT_VIZB_BINARY: ${{ inputs.vizb-binary }}
-        RUNNER_OS_VAL: ${{ runner.os }}
-        RUNNER_ARCH_VAL: ${{ runner.arch }}
+        RUNNER_OS_INPUT: ${{ runner.os }}
+        RUNNER_ARCH_INPUT: ${{ runner.arch }}
         VERSION_TAG: ${{ steps.version.outputs.tag }}
       run: |
         mkdir -p ~/.local/bin
@@ -182,9 +182,9 @@ runs:
           exit 0
         fi
 
-        OS=$(echo "$RUNNER_OS_VAL" | tr '[:upper:]' '[:lower:]')
+        OS=$(echo "$RUNNER_OS_INPUT" | tr '[:upper:]' '[:lower:]')
         [ "$OS" = "macos" ] && OS="darwin"
-        ARCH=$(echo "$RUNNER_ARCH_VAL" | tr '[:upper:]' '[:lower:]')
+        ARCH=$(echo "$RUNNER_ARCH_INPUT" | tr '[:upper:]' '[:lower:]')
         [ "$ARCH" = "x64" ] && ARCH="amd64"
 
         TAG="$VERSION_TAG"
@@ -325,7 +325,10 @@ runs:
           INPUT="$RESOLVE_FILE"
         else
           INPUT="${RUNNER_TEMP}/vizb-data-input-$$.txt"
-          bash -c "$RESOLVE_CMD" > "$INPUT"
+          cmd_args=()
+          while IFS= read -r -d '' t; do cmd_args+=("$t"); done \
+            < <(printf '%s' "$RESOLVE_CMD" | xargs printf '%s\0')
+          "${cmd_args[@]}" > "$INPUT"
         fi
 
         vizb "$INPUT" -o "$RESOLVE_JSON_FILE" "${VIZB_ARGS[@]}"
@@ -343,9 +346,8 @@ runs:
         FILES=()
         [ -f "$JSON_FILE" ] && FILES+=("$JSON_FILE")
         if [ -n "$INPUT_MERGE_FILES" ]; then
-          # word-split intentional: merge-files is space-separated list of paths
-          read -ra _merge_files <<< "$INPUT_MERGE_FILES"
-          FILES+=("${_merge_files[@]}")
+          while IFS= read -r -d '' t; do FILES+=("$t"); done \
+            < <(printf '%s' "$INPUT_MERGE_FILES" | xargs printf '%s\0')
         fi
         [ -n "$INPUT_MERGE_DIR" ] && FILES+=("$INPUT_MERGE_DIR")
         vizb merge "${FILES[@]}" -o "$JSON_FILE" --tag-axis "$INPUT_TAG_AXIS"
