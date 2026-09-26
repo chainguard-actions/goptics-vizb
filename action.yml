@@ -168,7 +168,7 @@ runs:
     - name: Cache vizb binary
       if: steps.version.outputs.is-major != 'true' && inputs.vizb-binary == ''
       id: cache-vizb
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      uses: chainguard-actions/actions-cache@38c9e2f39b3b539d2c7bdb22ccc9cb381ee084b7 # v6
       with:
         # Windows installs as vizb.exe (required for Node spawnSync / PATHEXT).
         path: |
@@ -179,20 +179,21 @@ runs:
       if: steps.cache-vizb.outputs.cache-hit != 'true'
       shell: bash
       env:
-        RUNNER_OS: ${{ runner.os }}
-        RUNNER_ARCH: ${{ runner.arch }}
-        VIZB_BINARY: ${{ inputs.vizb-binary }}
+        RUNNER_OS_INPUT: ${{ runner.os }}
+        RUNNER_ARCH_INPUT: ${{ runner.arch }}
+        VIZB_BINARY_INPUT: ${{ inputs.vizb-binary }}
         VERSION_TAG: ${{ steps.version.outputs.tag }}
       run: |
         mkdir -p ~/.local/bin
 
         # Node spawnSync on Windows only finds PATHEXT names (vizb.exe).
-        if [ "$RUNNER_OS" = "Windows" ]; then
+        if [ "$RUNNER_OS_INPUT" = "Windows" ]; then
           VIZB_DEST="$HOME/.local/bin/vizb.exe"
         else
           VIZB_DEST="$HOME/.local/bin/vizb"
         fi
 
+        VIZB_BINARY="$VIZB_BINARY_INPUT"
         if [ -n "$VIZB_BINARY" ]; then
           # go build -o ./bin/vizb on Windows yields ./bin/vizb.exe
           if [ ! -f "$VIZB_BINARY" ] && [ -f "${VIZB_BINARY}.exe" ]; then
@@ -204,9 +205,9 @@ runs:
           exit 0
         fi
 
-        OS=$(echo "$RUNNER_OS" | tr '[:upper:]' '[:lower:]')
+        OS=$(echo "$RUNNER_OS_INPUT" | tr '[:upper:]' '[:lower:]')
         [ "$OS" = "macos" ] && OS="darwin"
-        ARCH=$(echo "$RUNNER_ARCH" | tr '[:upper:]' '[:lower:]')
+        ARCH=$(echo "$RUNNER_ARCH_INPUT" | tr '[:upper:]' '[:lower:]')
         [ "$ARCH" = "x64" ] && ARCH="amd64"
 
         TAG="$VERSION_TAG"
