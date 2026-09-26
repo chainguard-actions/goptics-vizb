@@ -127,7 +127,7 @@ runs:
     - name: Cache vizb binary
       if: steps.version.outputs.is-latest != 'true'
       id: cache-vizb
-      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+      uses: chainguard-actions/actions-cache@dc4b8a9beaba8dd7fead89b3b3df02fb4bc6336a # v5
       with:
         path: ~/.local/bin/vizb
         key: vizb-${{ steps.version.outputs.tag }}-${{ runner.os }}-${{ runner.arch }}
@@ -137,14 +137,14 @@ runs:
       env:
         RUNNER_OS: ${{ runner.os }}
         RUNNER_ARCH: ${{ runner.arch }}
-        VIZB_TAG: ${{ steps.version.outputs.tag }}
+        VERSION_TAG: ${{ steps.version.outputs.tag }}
       run: |
         OS=$(echo "$RUNNER_OS" | tr '[:upper:]' '[:lower:]')
         [ "$OS" = "macos" ] && OS="darwin"
         ARCH=$(echo "$RUNNER_ARCH" | tr '[:upper:]' '[:lower:]')
         [ "$ARCH" = "x64" ] && ARCH="amd64"
 
-        TAG="$VIZB_TAG"
+        TAG="$VERSION_TAG"
         VERSION="${TAG#v}"
         EXT=".tar.gz"
         [ "$OS" = "windows" ] && EXT=".zip"
@@ -175,14 +175,16 @@ runs:
       id: resolve
       shell: bash
       env:
-        BENCH_FILE: ${{ inputs.bench-file }}
-        BENCH_CMD: ${{ inputs.bench-cmd }}
-        MERGE_FILES: ${{ inputs.merge-files }}
-        MERGE_DIR: ${{ inputs.merge-dir }}
+        INPUT_BENCH_FILE: ${{ inputs.bench-file }}
+        INPUT_BENCH_CMD: ${{ inputs.bench-cmd }}
+        INPUT_MERGE_FILES: ${{ inputs.merge-files }}
+        INPUT_MERGE_DIR: ${{ inputs.merge-dir }}
       run: |
+        BENCH_FILE="$INPUT_BENCH_FILE"
+        BENCH_CMD="$INPUT_BENCH_CMD"
         HAS_MERGE=""
-        [ -n "$MERGE_FILES" ] && HAS_MERGE="true"
-        [ -n "$MERGE_DIR" ] && HAS_MERGE="true"
+        [ -n "$INPUT_MERGE_FILES" ] && HAS_MERGE="true"
+        [ -n "$INPUT_MERGE_DIR" ] && HAS_MERGE="true"
 
         if [ -n "$BENCH_FILE" ]; then
           echo "source=file" >> "$GITHUB_OUTPUT"
@@ -239,8 +241,13 @@ runs:
         if [ "$RESOLVE_SOURCE" = "file" ]; then
           cp "$INPUT_BENCH_FILE" bench-input.txt
         else
-          # Execute the user-provided benchmark command in a subshell
-          bash -c "$INPUT_BENCH_CMD" _ > bench-input.txt
+          # bench-cmd is a command with arguments; tokenize safely
+          cmd_args=()
+          if [ -n "$INPUT_BENCH_CMD" ]; then
+            while IFS= read -r -d '' t; do cmd_args+=("$t"); done \
+              < <(printf '%s' "$INPUT_BENCH_CMD" | xargs printf '%s\0')
+          fi
+          "${cmd_args[@]}" > bench-input.txt
         fi
 
         vizb bench-input.txt -o bench.json "${VIZB_ARGS[@]}"
@@ -257,9 +264,8 @@ runs:
         FILES=()
         [ -f bench.json ] && FILES+=("bench.json")
         if [ -n "$INPUT_MERGE_FILES" ]; then
-          # Split space-separated file list safely
-          read -ra EXTRA_FILES <<< "$INPUT_MERGE_FILES"
-          FILES+=("${EXTRA_FILES[@]}")
+          while IFS= read -r -d '' t; do FILES+=("$t"); done \
+            < <(printf '%s' "$INPUT_MERGE_FILES" | xargs printf '%s\0')
         fi
         [ -n "$INPUT_MERGE_DIR" ] && FILES+=("$INPUT_MERGE_DIR")
         vizb merge "${FILES[@]}" -o bench.json --tag-axis "$INPUT_TAG_AXIS"
