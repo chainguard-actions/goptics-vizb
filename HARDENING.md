@@ -10,90 +10,101 @@
 
 **Harden Agent Version:** `2`
 
-Action **goptics--vizb/v0.17.0** was hardened automatically. 64 finding(s) were identified and resolved across 1 iteration(s).
+Action **goptics--vizb/v0.17.0** was hardened automatically. 62 finding(s) were identified and resolved across 3 iteration(s).
 
 ## Findings Fixed
 
-### script-injection (severity: high)
+### unpinned-uses (severity: high)
 
-Multiple ${{ ... }} expressions are interpolated directly inside run: shell blocks in action.yml, violating rule (a). This includes attacker-controllable inputs: ${{ inputs.vizb-binary }}, ${{ inputs.file }}, ${{ inputs.cmd }}, ${{ inputs.bench-file }}, ${{ inputs.bench-cmd }}, ${{ inputs.merge-files }}, ${{ inputs.merge-dir }}, ${{ inputs.data-url }}, ${{ inputs.output-json }}, ${{ inputs.tag }}, ${{ inputs.id }}, ${{ inputs.name }}, ${{ inputs.title }}, ${{ inputs.description }}, ${{ inputs.group }}, ${{ inputs.group-pattern }}, ${{ inputs.group-regex }}, ${{ inputs.sort }}, ${{ inputs.filter }}, ${{ inputs.mem-unit }}, ${{ inputs.time-unit }}, ${{ inputs.number-unit }}, ${{ inputs.col-axis }}, ${{ inputs.json-path }}, ${{ inputs.parser }}, ${{ inputs.charts }}, ${{ inputs.chart }}, ${{ inputs.stat }}, ${{ inputs.show-labels }}, ${{ inputs.enable-3d }}, ${{ inputs.output-html }}, ${{ inputs.tag-axis }}, ${{ github.action_ref }}, ${{ runner.os }}, ${{ runner.arch }}, and ${{ steps.resolve.outputs.* }} (including ${{ steps.resolve.outputs.cmd }} which is executed directly as a shell command). Additionally, ${{ inputs.merge-files }} is expanded unquoted in an array (rule b): `FILES+=(${{ inputs.merge-files }})`, allowing shell metacharacter injection.
+The composite action uses `actions/cache@v6`, which is pinned to a mutable tag rather than an immutable 40-character commit SHA. A tag can be moved to point to a different (potentially malicious) commit, enabling a supply-chain attack.
 
 Locations:
 
-- `action.yml:110`
+- `action.yml:107`
+
+### script-injection (severity: high)
+
+Rule (a): Multiple `run:` blocks in action.yml interpolate ${{ }} expressions directly into shell command strings, allowing an attacker who controls input values to inject arbitrary shell commands.
+
+'Resolve vizb version' step: `if [ -n "${{ inputs.vizb-binary }}" ]` and `REF="${{ github.action_ref }}"`
+
+'Install vizb' step: `VIZB_BINARY="${{ inputs.vizb-binary }}"`, `OS=$(echo "${{ runner.os }}" | ...)`, `ARCH=$(echo "${{ runner.arch }}" | ...)`, `TAG="${{ steps.version.outputs.tag }}"`
+
+'Resolve input' step: `FILE="${{ inputs.file }}"`, `FILE="${{ inputs.bench-file }}"`, `CMD="${{ inputs.cmd }}"`, `CMD="${{ inputs.bench-cmd }}"`, `${{ inputs.merge-files }}`, `${{ inputs.merge-dir }}`, `${{ inputs.data-url }}`, `OUT_JSON="${{ inputs.output-json }}"`
+
+'Convert to JSON' step: Dozens of `${{ inputs.* }}` expressions used directly in shell conditionals and as CLI arguments, plus the critically dangerous `${{ steps.resolve.outputs.cmd }} > "$INPUT"` which executes a step output directly as a shell command.
+
+'Merge' step: `JSON_FILE="${{ steps.resolve.outputs.json_file }}"`, `${{ inputs.merge-files }}` (unquoted word-split), `${{ inputs.merge-dir }}`, `${{ inputs.tag-axis }}`
+
+'Generate HTML' step: `${{ inputs.charts }}`, `${{ inputs.chart }}`, `${{ inputs.stat }}`, `${{ inputs.enable-3d }}`, `${{ inputs.data-url }}`, `${{ inputs.output-html }}`, `${{ steps.resolve.outputs.json_file }}`
+
+Locations:
+
 - `action.yml:116`
-- `action.yml:132`
-- `action.yml:139`
-- `action.yml:141`
+- `action.yml:122`
+- `action.yml:136`
 - `action.yml:143`
+- `action.yml:145`
+- `action.yml:148`
+- `action.yml:163`
+- `action.yml:168`
+- `action.yml:172`
+- `action.yml:173`
 - `action.yml:175`
-- `action.yml:177`
+- `action.yml:176`
+- `action.yml:183`
+- `action.yml:188`
+- `action.yml:200`
+- `action.yml:201`
+- `action.yml:202`
+- `action.yml:203`
+- `action.yml:204`
 - `action.yml:205`
+- `action.yml:206`
+- `action.yml:207`
+- `action.yml:208`
+- `action.yml:209`
+- `action.yml:210`
+- `action.yml:212`
+- `action.yml:213`
+- `action.yml:214`
+- `action.yml:215`
+- `action.yml:216`
+- `action.yml:219`
+- `action.yml:222`
+- `action.yml:224`
+- `action.yml:229`
+- `action.yml:232`
+- `action.yml:233`
+- `action.yml:234`
+- `action.yml:241`
 - `action.yml:242`
-- `action.yml:255`
-
-### script-injection (severity: high)
-
-Multiple workflow files interpolate ${{ matrix.id }} and ${{ inputs.example_category }} directly inside run: shell commands (rule a). For example: `run: mkdir -p .act/jsons && cp ${{ matrix.id }}.json .act/jsons/` and `run: mkdir -p dist/examples/live/${{ inputs.example_category }}` and `run: echo "::notice::Local preview at dist/examples/live/${{ inputs.example_category }}/index.html"`. The matrix.* and inputs.* contexts are workflow-controllable and must not be interpolated directly into shell commands.
-
-Locations:
-
-- `.github/workflows/comparisons-examples.yml:68`
-- `.github/workflows/github-legends.yml:72`
-- `.github/workflows/go-examples.yml:100`
-- `.github/workflows/javascript-examples.yml:65`
-- `.github/workflows/math-and-3d-examples.yml:76`
-- `.github/workflows/rust-examples.yml:60`
-- `.github/workflows/tabular-data-examples.yml:82`
-- `.github/workflows/merge-examples.yml:30`
-- `.github/workflows/merge-examples.yml:37`
+- `action.yml:243`
+- `action.yml:244`
+- `action.yml:247`
+- `action.yml:249`
 
 ### github-env-injection (severity: high)
 
-In action.yml's 'Resolve vizb version' step, ${{ github.action_ref }} is assigned to REF and then written unsanitized to $GITHUB_OUTPUT via `echo "tag=$REF" >> "$GITHUB_OUTPUT"` and `echo "tag=$TAG" >> "$GITHUB_OUTPUT"` without the required `printf '%s' ... | tr -d '\n\r'` sanitization. In the 'Resolve input' step, ${{ inputs.file }}, ${{ inputs.bench-file }}, ${{ inputs.cmd }}, ${{ inputs.bench-cmd }} are assigned to FILE/CMD and written to $GITHUB_OUTPUT via heredoc (`echo "$FILE"` / `echo "$CMD"`) without sanitization, and ${{ inputs.output-json }} is written as `echo "json_file=$OUT_JSON" >> "$GITHUB_OUTPUT"` without sanitization. An attacker-controlled newline in any of these values can inject arbitrary key=value pairs into the GitHub environment files.
+The 'Resolve input' step writes user-controlled input values to $GITHUB_OUTPUT without the required sanitization (`printf '%s' ... | tr -d '\n\r'`). Specifically:
+1. `FILE` (set from `${{ inputs.file }}` / `${{ inputs.bench-file }}`) is written via `echo "$FILE"` to $GITHUB_OUTPUT using a heredoc-style multiline syntax — a newline in the value can inject additional key=value pairs.
+2. `CMD` (set from `${{ inputs.cmd }}` / `${{ inputs.bench-cmd }}`) is similarly written via `echo "$CMD"` to $GITHUB_OUTPUT without sanitization.
+3. `OUT_JSON` (set from `${{ inputs.output-json }}`) is written via `echo "json_file=$OUT_JSON"` to $GITHUB_OUTPUT without sanitization.
+All three allow an attacker to inject arbitrary key=value pairs into $GITHUB_OUTPUT by embedding newlines in the input values.
 
 Locations:
 
-- `action.yml:120`
-- `action.yml:122`
 - `action.yml:183`
-- `action.yml:185`
+- `action.yml:188`
+- `action.yml:192`
+- `action.yml:193`
+- `action.yml:194`
+- `action.yml:195`
 - `action.yml:196`
-
-### unpinned-uses (severity: high)
-
-All uses: references in action.yml and workflow files use mutable version tags instead of pinned 40-character SHA commit hashes, making them vulnerable to supply-chain attacks if the referenced tag is moved or the upstream repository is compromised. Failing references include: action.yml: actions/cache@v6; action-ci.yml: actions/checkout@v7, actions/setup-go@v6, actions/upload-artifact@v7, actions/download-artifact@v8; cli.yml: actions/checkout@v7, actions/setup-go@v6, actions/upload-artifact@v7, actions/download-artifact@v8, golangci/golangci-lint-action@v9, codecov/codecov-action@v7; release.yml: trstringer/manual-approval@v1, actions/checkout@v7, docker/setup-qemu-action@v4, docker/setup-buildx-action@v4, docker/login-action@v4, actions/setup-go@v6, actions/download-artifact@v8, goreleaser/goreleaser-action@v7, vedantmgoyal2009/winget-releaser@v2, peaceiris/actions-gh-pages@v4; api-contract.yml: actions/checkout@v7, pnpm/action-setup@v6, actions/setup-node@v6; deploy-docs.yml: actions/checkout@v7, pnpm/action-setup@v6, actions/setup-node@v6, actions/upload-artifact@v7; ui.yml: actions/checkout@v7, pnpm/action-setup@v6, actions/setup-node@v6, codecov/codecov-action@v7, actions/setup-go@v6; winget.yml: vedantmgoyal2009/winget-releaser@v2; and all example workflow files using actions/checkout@v7, actions/upload-artifact@v7, actions/download-artifact@v8.
-
-Locations:
-
-- `action.yml:127`
-- `.github/workflows/action-ci.yml:10`
-- `.github/workflows/cli.yml:27`
-- `.github/workflows/release.yml:16`
-- `.github/workflows/api-contract.yml:27`
-- `.github/workflows/deploy-docs.yml:27`
-- `.github/workflows/ui.yml:20`
-- `.github/workflows/winget.yml:9`
-- `.github/workflows/comparisons-examples.yml:36`
-- `.github/workflows/github-legends.yml:47`
-- `.github/workflows/go-examples.yml:84`
-- `.github/workflows/javascript-examples.yml:43`
-- `.github/workflows/math-and-3d-examples.yml:58`
-- `.github/workflows/rust-examples.yml:43`
-- `.github/workflows/tabular-data-examples.yml:58`
-- `.github/workflows/merge-examples.yml:21`
-- `.github/workflows/publish-site.yml:20`
-- `.github/workflows/installers.yml:28`
-
-### missing-permissions (severity: medium)
-
-Three workflow files have no top-level permissions: key and no job-level permissions: keys on any of their jobs, meaning they run with the default (potentially broad) GITHUB_TOKEN permissions: action-ci.yml, cli.yml, and api-contract.yml. Each of these files has multiple jobs with no permissions defined at any level.
-
-Locations:
-
-- `.github/workflows/action-ci.yml:1`
-- `.github/workflows/cli.yml:1`
-- `.github/workflows/api-contract.yml:1`
+- `action.yml:197`
+- `action.yml:199`
+- `action.yml:200`
+- `action.yml:201`
 
 ### static-inline-injection (severity: high)
 
@@ -571,19 +582,33 @@ Locations:
 
 ### Iteration 1
 
-**Fixes applied:** script-injection, github-env-injection, unpinned-uses, missing-permissions, static-inline-injection
+**Fixes applied:** unpinned-uses, script-injection, github-env-injection, static-inline-injection
 
 **Notes:**
 
-Fixed all findings across action.yml and 11 workflow files:
+Fixed all security findings in hardened/action/action.yml:
 
-1. action.yml: Moved all ${{ inputs.* }}, ${{ github.action_ref }}, ${{ runner.* }}, and ${{ steps.resolve.outputs.* }} expressions from run: blocks to env: blocks. Sanitized all GITHUB_OUTPUT writes with printf '%s' | tr -d '\n\r'. Fixed merge-files unquoted array expansion using xargs-based tokenization. Pinned actions/cache@v6 to SHA.
+1. unpinned-uses: Pinned actions/cache@v6 to full SHA 55cc8345863c7cc4c66a329aec7e433d2d1c52a9 with # v6 comment.
 
-2. Workflow files (comparisons-examples.yml, github-legends.yml, go-examples.yml, javascript-examples.yml, math-and-3d-examples.yml, rust-examples.yml, tabular-data-examples.yml, merge-examples.yml): Moved ${{ matrix.id }} and ${{ inputs.example_category }} from run: blocks to env: blocks.
+2. script-injection / static-inline-injection: Moved all ${{ }} expressions from run: blocks to env: blocks across all 6 steps (Resolve vizb version, Install vizb, Resolve input, Convert to JSON, Merge, Generate HTML). Each step now has a comprehensive env: block with named variables that are referenced as plain $VAR_NAME in the shell scripts.
 
-3. All workflow files: Pinned all 16 action references to full 40-character SHA hashes.
+3. github-env-injection: In the 'Resolve input' step, sanitized FILE, CMD, and OUT_JSON values with `printf '%s' "$VAR" | tr -d '\n\r'` before writing to $GITHUB_OUTPUT to prevent newline injection.
 
-4. action-ci.yml, cli.yml, api-contract.yml: Added top-level permissions: {} and job-level permissions: {contents: read} blocks.
+4. The merge-files input in the Merge step is now tokenized using the xargs/read-loop pattern (while IFS= read -r -d '' t; do FILES+=("$t"); done < <(printf '%s' "$INPUT_MERGE_FILES" | xargs printf '%s\0')) to safely handle space-separated file paths without shell injection.
 
-5. release.yml, deploy-docs.yml, ui.yml, winget.yml, publish-site.yml, installers.yml: Pinned all action references to SHA hashes.
+### Iteration 2
+
+**Fixes applied:** github-env-injection
+
+**Notes:**
+
+Fixed the github-env-injection finding in the 'Resolve vizb version' step of action.yml (line 145). Changed `REF="$GITHUB_ACTION_REF"` to `REF=$(printf '%s' "$GITHUB_ACTION_REF" | tr -d '\n\r')` to sanitize the value from the github context before it is written to $GITHUB_OUTPUT. This prevents a newline-injection attack where a crafted `github.action_ref` value containing newlines could poison subsequent GITHUB_OUTPUT entries.
+
+### Iteration 3
+
+**Fixes applied:** unpinned-uses
+
+**Notes:**
+
+Pinned both unpinned action references in hardened/action/.github/actions/setup-embed-ui/action.yml: `pnpm/action-setup@v6` → `pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6` and `actions/setup-node@v6` → `actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6`. Original version tags preserved as comments for readability.
 

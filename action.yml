@@ -144,7 +144,7 @@ runs:
           exit 0
         fi
 
-        REF="$GITHUB_ACTION_REF"
+        REF=$(printf '%s' "$GITHUB_ACTION_REF" | tr -d '\n\r')
         if [ -z "$REF" ]; then
           REF="v0"
         fi
@@ -154,18 +154,16 @@ runs:
           TAG=$(git ls-remote --tags --refs --sort='-version:refname' \
             https://github.com/goptics/vizb "refs/tags/v${PREFIX}.*" | \
             head -1 | sed 's|.*/||')
-          safe_tag=$(printf '%s' "$TAG" | tr -d '\n\r')
-          echo "tag=$safe_tag" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "is-major=true" >> "$GITHUB_OUTPUT"
         else
-          safe_ref=$(printf '%s' "$REF" | tr -d '\n\r')
-          echo "tag=$safe_ref" >> "$GITHUB_OUTPUT"
+          echo "tag=$REF" >> "$GITHUB_OUTPUT"
           echo "is-major=false" >> "$GITHUB_OUTPUT"
         fi
     - name: Cache vizb binary
       if: steps.version.outputs.is-major != 'true' && inputs.vizb-binary == ''
       id: cache-vizb
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      uses: chainguard-actions/actions-cache@38c9e2f39b3b539d2c7bdb22ccc9cb381ee084b7 # v6
       with:
         path: ~/.local/bin/vizb
         key: vizb-${{ steps.version.outputs.tag }}-${{ runner.os }}-${{ runner.arch }}
@@ -174,26 +172,27 @@ runs:
       shell: bash
       env:
         INPUT_VIZB_BINARY: ${{ inputs.vizb-binary }}
-        RUNNER_OS_VAL: ${{ runner.os }}
-        RUNNER_ARCH_VAL: ${{ runner.arch }}
-        VIZB_TAG: ${{ steps.version.outputs.tag }}
+        INPUT_RUNNER_OS: ${{ runner.os }}
+        INPUT_RUNNER_ARCH: ${{ runner.arch }}
+        INPUT_VERSION_TAG: ${{ steps.version.outputs.tag }}
       run: |
         mkdir -p ~/.local/bin
 
-        if [ -n "$INPUT_VIZB_BINARY" ]; then
-          echo "::notice::Installing local vizb binary from $INPUT_VIZB_BINARY"
-          cp "$INPUT_VIZB_BINARY" ~/.local/bin/vizb
+        VIZB_BINARY="$INPUT_VIZB_BINARY"
+        if [ -n "$VIZB_BINARY" ]; then
+          echo "::notice::Installing local vizb binary from $VIZB_BINARY"
+          cp "$VIZB_BINARY" ~/.local/bin/vizb
           chmod +x ~/.local/bin/vizb
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           exit 0
         fi
 
-        OS=$(echo "$RUNNER_OS_VAL" | tr '[:upper:]' '[:lower:]')
+        OS=$(echo "$INPUT_RUNNER_OS" | tr '[:upper:]' '[:lower:]')
         [ "$OS" = "macos" ] && OS="darwin"
-        ARCH=$(echo "$RUNNER_ARCH_VAL" | tr '[:upper:]' '[:lower:]')
+        ARCH=$(echo "$INPUT_RUNNER_ARCH" | tr '[:upper:]' '[:lower:]')
         [ "$ARCH" = "x64" ] && ARCH="amd64"
 
-        TAG="$VIZB_TAG"
+        TAG="$INPUT_VERSION_TAG"
         VERSION="${TAG#v}"
         EXT=".tar.gz"
         [ "$OS" = "windows" ] && EXT=".zip"
@@ -262,20 +261,21 @@ runs:
           exit 1
         fi
 
+        safe_file=$(printf '%s' "$FILE" | tr -d '\n\r')
+        safe_cmd=$(printf '%s' "$CMD" | tr -d '\n\r')
         {
           echo "file<<__VIZB_EOF__"
-          printf '%s' "$FILE" | tr -d '\n\r'
-          echo ""
+          echo "$safe_file"
           echo "__VIZB_EOF__"
           echo "cmd<<__VIZB_EOF__"
-          printf '%s' "$CMD" | tr -d '\n\r'
-          echo ""
+          echo "$safe_cmd"
           echo "__VIZB_EOF__"
         } >> "$GITHUB_OUTPUT"
 
-        if [ -n "$INPUT_OUTPUT_JSON" ]; then
-          safe_json=$(printf '%s' "$INPUT_OUTPUT_JSON" | tr -d '\n\r')
-          echo "json_file=$safe_json" >> "$GITHUB_OUTPUT"
+        OUT_JSON="$INPUT_OUTPUT_JSON"
+        safe_out_json=$(printf '%s' "$OUT_JSON" | tr -d '\n\r')
+        if [ -n "$safe_out_json" ]; then
+          echo "json_file=$safe_out_json" >> "$GITHUB_OUTPUT"
         else
           echo "json_file=bench.json" >> "$GITHUB_OUTPUT"
         fi
@@ -332,14 +332,13 @@ runs:
         append_chart_stat_flags VIZB_ARGS "$INPUT_CHARTS" "$INPUT_CHART" "$INPUT_STAT"
 
         if [ -n "$RESOLVE_FILE" ]; then
-          INPUT_PATH="$RESOLVE_FILE"
+          INPUT="$RESOLVE_FILE"
         else
-          INPUT_PATH="${RUNNER_TEMP}/vizb-data-input-$$.txt"
-          # Execute the command safely via bash -c to avoid direct injection
-          bash -c "$RESOLVE_CMD" > "$INPUT_PATH"
+          INPUT="${RUNNER_TEMP}/vizb-data-input-$$.txt"
+          eval "$RESOLVE_CMD" > "$INPUT"
         fi
 
-        vizb "$INPUT_PATH" -o "$RESOLVE_JSON_FILE" "${VIZB_ARGS[@]}"
+        vizb "$INPUT" -o "$RESOLVE_JSON_FILE" "${VIZB_ARGS[@]}"
     - name: Merge
       if: inputs.merge-files != '' || inputs.merge-dir != ''
       id: merge
