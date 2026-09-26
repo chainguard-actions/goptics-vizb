@@ -159,7 +159,7 @@ runs:
     - name: Cache vizb binary
       if: steps.version.outputs.is-major != 'true' && inputs.vizb-binary == ''
       id: cache-vizb
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      uses: chainguard-actions/actions-cache@38c9e2f39b3b539d2c7bdb22ccc9cb381ee084b7 # v6
       with:
         path: ~/.local/bin/vizb
         key: vizb-${{ steps.version.outputs.tag }}-${{ runner.os }}-${{ runner.arch }}
@@ -170,7 +170,7 @@ runs:
         INPUT_VIZB_BINARY: ${{ inputs.vizb-binary }}
         RUNNER_OS_VAL: ${{ runner.os }}
         RUNNER_ARCH_VAL: ${{ runner.arch }}
-        VIZB_TAG: ${{ steps.version.outputs.tag }}
+        VERSION_TAG: ${{ steps.version.outputs.tag }}
       run: |
         mkdir -p ~/.local/bin
 
@@ -188,7 +188,7 @@ runs:
         ARCH=$(echo "$RUNNER_ARCH_VAL" | tr '[:upper:]' '[:lower:]')
         [ "$ARCH" = "x64" ] && ARCH="amd64"
 
-        TAG="$VIZB_TAG"
+        TAG="$VERSION_TAG"
         VERSION="${TAG#v}"
         EXT=".tar.gz"
         [ "$OS" = "windows" ] && EXT=".zip"
@@ -324,16 +324,15 @@ runs:
         append_chart_stat_flags VIZB_ARGS "$INPUT_CHARTS" "$INPUT_CHART" "$INPUT_STAT"
 
         if [ -n "$RESOLVE_FILE" ]; then
-          INPUT_PATH="$RESOLVE_FILE"
+          INPUT="$RESOLVE_FILE"
         else
-          INPUT_PATH="${RUNNER_TEMP}/vizb-data-input-$$.txt"
-          CMD_SCRIPT="${RUNNER_TEMP}/vizb-cmd-$$.sh"
-          printf '%s\n' "$RESOLVE_CMD" > "$CMD_SCRIPT"
-          bash "$CMD_SCRIPT" > "$INPUT_PATH"
-          rm -f "$CMD_SCRIPT"
+          INPUT="${RUNNER_TEMP}/vizb-data-input-$$.txt"
+          VIZB_CMD_SCRIPT="${RUNNER_TEMP}/vizb-cmd-$$.sh"
+          printf '%s\n' "$RESOLVE_CMD" > "$VIZB_CMD_SCRIPT"
+          bash "$VIZB_CMD_SCRIPT" > "$INPUT"
         fi
 
-        vizb "$INPUT_PATH" -o "$RESOLVE_JSON_FILE" "${VIZB_ARGS[@]}"
+        vizb "$INPUT" -o "$RESOLVE_JSON_FILE" "${VIZB_ARGS[@]}"
     - name: Merge
       if: inputs.merge-files != '' || inputs.merge-dir != ''
       id: merge
@@ -347,7 +346,10 @@ runs:
         JSON_FILE="$RESOLVE_JSON_FILE"
         FILES=()
         [ -f "$JSON_FILE" ] && FILES+=("$JSON_FILE")
-        [ -n "$INPUT_MERGE_FILES" ] && read -ra _extra_files <<< "$INPUT_MERGE_FILES" && FILES+=("${_extra_files[@]}")
+        if [ -n "$INPUT_MERGE_FILES" ]; then
+          while IFS= read -r -d '' t; do FILES+=("$t"); done \
+            < <(printf '%s' "$INPUT_MERGE_FILES" | xargs printf '%s\0')
+        fi
         [ -n "$INPUT_MERGE_DIR" ] && FILES+=("$INPUT_MERGE_DIR")
         vizb merge "${FILES[@]}" -o "$JSON_FILE" --tag-axis "$INPUT_TAG_AXIS"
     - name: Generate HTML
