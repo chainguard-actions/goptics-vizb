@@ -168,7 +168,7 @@ runs:
     - name: Cache vizb binary
       if: steps.version.outputs.is-major != 'true' && inputs.vizb-binary == ''
       id: cache-vizb
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      uses: chainguard-actions/actions-cache@38c9e2f39b3b539d2c7bdb22ccc9cb381ee084b7 # v6
       with:
         path: ~/.local/bin/vizb
         key: vizb-${{ steps.version.outputs.tag }}-${{ runner.os }}-${{ runner.arch }}
@@ -191,9 +191,9 @@ runs:
           exit 0
         fi
 
-        OS=$(printf '%s' "$RUNNER_OS_INPUT" | tr '[:upper:]' '[:lower:]')
+        OS=$(echo "$RUNNER_OS_INPUT" | tr '[:upper:]' '[:lower:]')
         [ "$OS" = "macos" ] && OS="darwin"
-        ARCH=$(printf '%s' "$RUNNER_ARCH_INPUT" | tr '[:upper:]' '[:lower:]')
+        ARCH=$(echo "$RUNNER_ARCH_INPUT" | tr '[:upper:]' '[:lower:]')
         [ "$ARCH" = "x64" ] && ARCH="amd64"
 
         TAG="$VIZB_TAG"
@@ -265,21 +265,21 @@ runs:
           exit 1
         fi
 
-        safe_file=$(printf '%s' "$FILE" | tr -d '\n\r')
-        safe_cmd=$(printf '%s' "$CMD" | tr -d '\n\r')
         {
           echo "file<<__VIZB_EOF__"
-          echo "$safe_file"
+          printf '%s' "$FILE" | tr -d '\n\r'
+          echo ""
           echo "__VIZB_EOF__"
           echo "cmd<<__VIZB_EOF__"
-          echo "$safe_cmd"
+          printf '%s' "$CMD" | tr -d '\n\r'
+          echo ""
           echo "__VIZB_EOF__"
         } >> "$GITHUB_OUTPUT"
 
         OUT_JSON="$INPUT_OUTPUT_JSON"
         if [ -n "$OUT_JSON" ]; then
-          safe_out_json=$(printf '%s' "$OUT_JSON" | tr -d '\n\r')
-          echo "json_file=$safe_out_json" >> "$GITHUB_OUTPUT"
+          safe_out=$(printf '%s' "$OUT_JSON" | tr -d '\n\r')
+          echo "json_file=$safe_out" >> "$GITHUB_OUTPUT"
         else
           echo "json_file=bench.json" >> "$GITHUB_OUTPUT"
         fi
@@ -341,10 +341,10 @@ runs:
           INPUT="$RESOLVE_FILE"
         else
           INPUT="${RUNNER_TEMP}/vizb-data-input-$$.txt"
-          # Execute the user-supplied command safely via sh -c with the value as a
-          # string argument, so it is interpreted by the shell but never injected
-          # into our own script's syntax.
-          sh -c "$RESOLVE_CMD" > "$INPUT"
+          cmd_args=()
+          while IFS= read -r -d '' t; do cmd_args+=("$t"); done \
+            < <(printf '%s' "$RESOLVE_CMD" | xargs printf '%s\0')
+          "${cmd_args[@]}" > "$INPUT"
         fi
 
         vizb "$INPUT" -o "$RESOLVE_JSON_FILE" "${VIZB_ARGS[@]}"
@@ -353,17 +353,19 @@ runs:
       id: merge
       shell: bash
       env:
+        RESOLVE_JSON_FILE: ${{ steps.resolve.outputs.json_file }}
         INPUT_MERGE_FILES: ${{ inputs.merge-files }}
         INPUT_MERGE_DIR: ${{ inputs.merge-dir }}
         INPUT_TAG_AXIS: ${{ inputs.tag-axis }}
-        RESOLVE_JSON_FILE: ${{ steps.resolve.outputs.json_file }}
       run: |
         JSON_FILE="$RESOLVE_JSON_FILE"
         FILES=()
         [ -f "$JSON_FILE" ] && FILES+=("$JSON_FILE")
         if [ -n "$INPUT_MERGE_FILES" ]; then
-          while IFS= read -r -d '' t; do FILES+=("$t"); done \
+          merge_files=()
+          while IFS= read -r -d '' t; do merge_files+=("$t"); done \
             < <(printf '%s' "$INPUT_MERGE_FILES" | xargs printf '%s\0')
+          FILES+=("${merge_files[@]}")
         fi
         [ -n "$INPUT_MERGE_DIR" ] && FILES+=("$INPUT_MERGE_DIR")
         vizb merge "${FILES[@]}" -o "$JSON_FILE" --tag-axis "$INPUT_TAG_AXIS"
