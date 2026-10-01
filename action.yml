@@ -144,7 +144,7 @@ runs:
           exit 0
         fi
 
-        REF=$(printf '%s' "$GITHUB_ACTION_REF" | tr -d '\n\r')
+        REF="$GITHUB_ACTION_REF"
         if [ -z "$REF" ]; then
           REF="v0"
         fi
@@ -154,10 +154,12 @@ runs:
           TAG=$(git ls-remote --tags --refs --sort='-version:refname' \
             https://github.com/goptics/vizb "refs/tags/v${PREFIX}.*" | \
             head -1 | sed 's|.*/||')
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          safe_tag=$(printf '%s' "$TAG" | tr -d '\n\r')
+          echo "tag=$safe_tag" >> "$GITHUB_OUTPUT"
           echo "is-major=true" >> "$GITHUB_OUTPUT"
         else
-          echo "tag=$REF" >> "$GITHUB_OUTPUT"
+          safe_ref=$(printf '%s' "$REF" | tr -d '\n\r')
+          echo "tag=$safe_ref" >> "$GITHUB_OUTPUT"
           echo "is-major=false" >> "$GITHUB_OUTPUT"
         fi
     - name: Cache vizb binary
@@ -174,7 +176,7 @@ runs:
         INPUT_VIZB_BINARY: ${{ inputs.vizb-binary }}
         INPUT_RUNNER_OS: ${{ runner.os }}
         INPUT_RUNNER_ARCH: ${{ runner.arch }}
-        INPUT_VERSION_TAG: ${{ steps.version.outputs.tag }}
+        INPUT_TAG: ${{ steps.version.outputs.tag }}
       run: |
         mkdir -p ~/.local/bin
 
@@ -192,7 +194,7 @@ runs:
         ARCH=$(echo "$INPUT_RUNNER_ARCH" | tr '[:upper:]' '[:lower:]')
         [ "$ARCH" = "x64" ] && ARCH="amd64"
 
-        TAG="$INPUT_VERSION_TAG"
+        TAG="$INPUT_TAG"
         VERSION="${TAG#v}"
         EXT=".tar.gz"
         [ "$OS" = "windows" ] && EXT=".zip"
@@ -261,20 +263,20 @@ runs:
           exit 1
         fi
 
-        safe_file=$(printf '%s' "$FILE" | tr -d '\n\r')
-        safe_cmd=$(printf '%s' "$CMD" | tr -d '\n\r')
         {
           echo "file<<__VIZB_EOF__"
-          echo "$safe_file"
+          printf '%s' "$FILE" | tr -d '\n\r'
+          echo ""
           echo "__VIZB_EOF__"
           echo "cmd<<__VIZB_EOF__"
-          echo "$safe_cmd"
+          printf '%s' "$CMD" | tr -d '\n\r'
+          echo ""
           echo "__VIZB_EOF__"
         } >> "$GITHUB_OUTPUT"
 
         OUT_JSON="$INPUT_OUTPUT_JSON"
-        safe_out_json=$(printf '%s' "$OUT_JSON" | tr -d '\n\r')
-        if [ -n "$safe_out_json" ]; then
+        if [ -n "$OUT_JSON" ]; then
+          safe_out_json=$(printf '%s' "$OUT_JSON" | tr -d '\n\r')
           echo "json_file=$safe_out_json" >> "$GITHUB_OUTPUT"
         else
           echo "json_file=bench.json" >> "$GITHUB_OUTPUT"
@@ -335,7 +337,12 @@ runs:
           INPUT="$RESOLVE_FILE"
         else
           INPUT="${RUNNER_TEMP}/vizb-data-input-$$.txt"
-          eval "$RESOLVE_CMD" > "$INPUT"
+          cmd_tokens=()
+          if [ -n "$RESOLVE_CMD" ]; then
+            while IFS= read -r -d '' t; do cmd_tokens+=("$t"); done \
+              < <(printf '%s' "$RESOLVE_CMD" | xargs printf '%s\0')
+          fi
+          "${cmd_tokens[@]}" > "$INPUT"
         fi
 
         vizb "$INPUT" -o "$RESOLVE_JSON_FILE" "${VIZB_ARGS[@]}"
@@ -344,10 +351,10 @@ runs:
       id: merge
       shell: bash
       env:
+        RESOLVE_JSON_FILE: ${{ steps.resolve.outputs.json_file }}
         INPUT_MERGE_FILES: ${{ inputs.merge-files }}
         INPUT_MERGE_DIR: ${{ inputs.merge-dir }}
         INPUT_TAG_AXIS: ${{ inputs.tag-axis }}
-        RESOLVE_JSON_FILE: ${{ steps.resolve.outputs.json_file }}
       run: |
         JSON_FILE="$RESOLVE_JSON_FILE"
         FILES=()
