@@ -145,16 +145,17 @@ runs:
         if [ -z "$REF" ]; then
           REF="v0"
         fi
+        safe_ref=$(printf '%s' "$REF" | tr -d '\n\r')
 
-        if echo "$REF" | grep -qE '^v[0-9]+$'; then
-          PREFIX="${REF#v}"
+        if echo "$safe_ref" | grep -qE '^v[0-9]+$'; then
+          PREFIX="${safe_ref#v}"
           TAG=$(git ls-remote --tags --refs --sort='-version:refname' \
             https://github.com/goptics/vizb "refs/tags/v${PREFIX}.*" | \
             head -1 | sed 's|.*/||')
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          safe_tag=$(printf '%s' "$TAG" | tr -d '\n\r')
+          echo "tag=$safe_tag" >> "$GITHUB_OUTPUT"
           echo "is-major=true" >> "$GITHUB_OUTPUT"
         else
-          safe_ref=$(printf '%s' "$REF" | tr -d '\n\r')
           echo "tag=$safe_ref" >> "$GITHUB_OUTPUT"
           echo "is-major=false" >> "$GITHUB_OUTPUT"
         fi
@@ -172,7 +173,7 @@ runs:
         INPUT_VIZB_BINARY: ${{ inputs.vizb-binary }}
         RUNNER_OS_VAL: ${{ runner.os }}
         RUNNER_ARCH_VAL: ${{ runner.arch }}
-        VERSION_TAG: ${{ steps.version.outputs.tag }}
+        VIZB_TAG: ${{ steps.version.outputs.tag }}
       run: |
         mkdir -p ~/.local/bin
 
@@ -189,7 +190,7 @@ runs:
         ARCH=$(echo "$RUNNER_ARCH_VAL" | tr '[:upper:]' '[:lower:]')
         [ "$ARCH" = "x64" ] && ARCH="amd64"
 
-        TAG="$VERSION_TAG"
+        TAG="$VIZB_TAG"
         VERSION="${TAG#v}"
         EXT=".tar.gz"
         [ "$OS" = "windows" ] && EXT=".zip"
@@ -269,8 +270,9 @@ runs:
           echo "__VIZB_EOF__"
         } >> "$GITHUB_OUTPUT"
 
-        if [ -n "$INPUT_OUTPUT_JSON" ]; then
-          safe_out_json=$(printf '%s' "$INPUT_OUTPUT_JSON" | tr -d '\n\r')
+        OUT_JSON="$INPUT_OUTPUT_JSON"
+        safe_out_json=$(printf '%s' "$OUT_JSON" | tr -d '\n\r')
+        if [ -n "$safe_out_json" ]; then
           echo "json_file=$safe_out_json" >> "$GITHUB_OUTPUT"
         else
           echo "json_file=bench.json" >> "$GITHUB_OUTPUT"
@@ -329,7 +331,11 @@ runs:
           INPUT="$RESOLVE_FILE"
         else
           INPUT="${RUNNER_TEMP}/vizb-data-input-$$.txt"
-          eval "$RESOLVE_CMD" > "$INPUT"
+          # Write the command to a temp script file and execute it safely
+          CMD_SCRIPT="${RUNNER_TEMP}/vizb-cmd-$$.sh"
+          printf '%s\n' "$RESOLVE_CMD" > "$CMD_SCRIPT"
+          chmod +x "$CMD_SCRIPT"
+          bash "$CMD_SCRIPT" > "$INPUT"
         fi
 
         vizb "$INPUT" -o "$RESOLVE_JSON_FILE" "${VIZB_ARGS[@]}"
@@ -338,10 +344,10 @@ runs:
       id: merge
       shell: bash
       env:
+        RESOLVE_JSON_FILE: ${{ steps.resolve.outputs.json_file }}
         INPUT_MERGE_FILES: ${{ inputs.merge-files }}
         INPUT_MERGE_DIR: ${{ inputs.merge-dir }}
         INPUT_TAG_AXIS: ${{ inputs.tag-axis }}
-        RESOLVE_JSON_FILE: ${{ steps.resolve.outputs.json_file }}
       run: |
         JSON_FILE="$RESOLVE_JSON_FILE"
         FILES=()

@@ -10,63 +10,70 @@
 
 **Harden Agent Version:** `2`
 
-Action **goptics--vizb/v0.16.1** was hardened automatically. 60 finding(s) were identified and resolved across 2 iteration(s).
+Action **goptics--vizb/v0.16.1** was hardened automatically. 60 finding(s) were identified and resolved across 1 iteration(s).
 
 ## Findings Fixed
 
 ### script-injection (severity: high)
 
-Rule (a): Multiple `run:` blocks in action.yml directly interpolate `${{ ... }}` expressions inside shell commands, enabling script injection. 
+Multiple `${{ ... }}` expressions are directly interpolated inside `run:` shell command strings across all five composite action steps, violating sub-rule (a). This allows an attacker who controls inputs or the calling workflow to inject arbitrary shell commands.
 
-**"Resolve vizb version" step**: `if [ -n "${{ inputs.vizb-binary }}" ]` and `REF="${{ github.action_ref }}"` — attacker-controlled inputs interpolated directly into shell.
-
-**"Install vizb" step**: `VIZB_BINARY="${{ inputs.vizb-binary }}"`, `OS=$(echo "${{ runner.os }}" | tr ...)`, `ARCH=$(echo "${{ runner.arch }}" | tr ...)`, `TAG="${{ steps.version.outputs.tag }}"` — all `${{ }}` expressions directly in run block.
-
-**"Resolve input" step**: `FILE="${{ inputs.file }}"`, `FILE="${{ inputs.bench-file }}"`, `CMD="${{ inputs.cmd }}"`, `CMD="${{ inputs.bench-cmd }}"`, `${{ inputs.merge-files }}`, `${{ inputs.merge-dir }}`, `${{ inputs.data-url }}`, `${{ inputs.output-json }}` — all directly interpolated.
-
-**"Convert to JSON" step**: Numerous `${{ inputs.* }}` expressions used directly in shell conditionals and as CLI arguments. Most critically, `${{ steps.resolve.outputs.cmd }} > "$INPUT"` executes an attacker-controlled string as a shell command.
-
-Rule (b): **"Merge" step**: `FILES+=(${{ inputs.merge-files }})` — the `inputs.merge-files` expression is unquoted, allowing word-splitting and glob expansion of attacker-controlled content.
-
-**"Generate HTML" step**: `${{ inputs.charts }}`, `${{ inputs.chart }}`, `${{ inputs.stat }}`, `${{ inputs.enable-3d }}`, `${{ inputs.data-url }}`, `${{ inputs.output-html }}` all directly interpolated in run block.
+Key violations:
+- Line 121: `if [ -n "${{ inputs.vizb-binary }}" ]` — inputs.* in run block
+- Line 127: `REF="${{ github.action_ref }}"` — github.* in run block
+- Line 158: `VIZB_BINARY="${{ inputs.vizb-binary }}"` — inputs.* in run block
+- Line 167: `OS=$(echo "${{ runner.os }}" | ...)` — runner.* in run block
+- Line 169: `ARCH=$(echo "${{ runner.arch }}" | ...)` — runner.* in run block
+- Line 172: `TAG="${{ steps.version.outputs.tag }}"` — steps output in run block
+- Lines 217-220: `FILE="${{ inputs.file }}"`, `FILE="${{ inputs.bench-file }}"`, `CMD="${{ inputs.cmd }}"`, `CMD="${{ inputs.bench-cmd }}"` — inputs.* in run block
+- Lines 256-273: Many `${{ inputs.* }}` directly in array-building shell commands
+- Line 279: `${{ steps.resolve.outputs.cmd }} > "$INPUT"` — step output executed directly as a shell command (most critical)
+- Lines 289-294: `${{ steps.resolve.outputs.* }}` and `${{ inputs.* }}` in Merge step
+- Lines 302-308: `${{ inputs.* }}` and `${{ steps.resolve.outputs.* }}` in Generate HTML step
 
 Locations:
 
-- `action.yml:104`
+- `action.yml:121`
 - `action.yml:127`
-- `action.yml:163`
-- `action.yml:207`
-- `action.yml:253`
-- `action.yml:263`
+- `action.yml:158`
+- `action.yml:167`
+- `action.yml:169`
+- `action.yml:172`
+- `action.yml:217`
+- `action.yml:219`
+- `action.yml:256`
+- `action.yml:279`
+- `action.yml:289`
+- `action.yml:302`
 
 ### github-env-injection (severity: high)
 
-In the "Resolve input" step, user-controlled inputs are assigned to shell variables and then written to `$GITHUB_OUTPUT` without sanitization (no `printf '%s' ... | tr -d '\n\r'` step). Specifically:
-- `FILE` is set from `${{ inputs.file }}` / `${{ inputs.bench-file }}` and written via `echo "$FILE"` into a `$GITHUB_OUTPUT` heredoc block.
-- `CMD` is set from `${{ inputs.cmd }}` / `${{ inputs.bench-cmd }}` and written via `echo "$CMD"` into a `$GITHUB_OUTPUT` heredoc block.
-- `OUT_JSON` is set from `${{ inputs.output-json }}` and written as `echo "json_file=$OUT_JSON" >> "$GITHUB_OUTPUT"` without sanitization.
+Several `run:` blocks write values derived from untrusted inputs to `$GITHUB_OUTPUT` without the required sanitization step (`printf '%s' ... | tr -d '\n\r'`).
 
-An attacker can inject newlines into these values to poison subsequent `$GITHUB_OUTPUT` entries.
+1. 'Resolve vizb version' step (lines 137, 140): `echo "tag=$TAG" >> "$GITHUB_OUTPUT"` and `echo "tag=$REF" >> "$GITHUB_OUTPUT"` — both `$TAG` and `$REF` are derived from `${{ github.action_ref }}` (set on line 127) without sanitization before writing.
+
+2. 'Resolve input' step (line 238): `} >> "$GITHUB_OUTPUT"` writes `$FILE` (from `${{ inputs.file }}`/`${{ inputs.bench-file }}`) and `$CMD` (from `${{ inputs.cmd }}`/`${{ inputs.bench-cmd }}`) using a heredoc-style multiline write without sanitizing newlines from the values.
+
+3. 'Resolve input' step (line 242): `echo "json_file=$OUT_JSON" >> "$GITHUB_OUTPUT"` — `$OUT_JSON` is set from `${{ inputs.output-json }}` on line 240 without sanitization.
 
 Locations:
 
-- `action.yml:163`
+- `action.yml:137`
+- `action.yml:140`
+- `action.yml:238`
+- `action.yml:242`
 
 ### unpinned-uses (severity: high)
 
-The following `uses:` references are pinned to mutable tags rather than immutable 40-character commit SHAs, making them vulnerable to supply-chain attacks if the tag is moved:
+The composite action uses `actions/cache@v6` which is pinned to a mutable version tag rather than an immutable 40-character commit SHA. This is vulnerable to supply-chain attacks if the tag is moved to a different commit.
 
-- `uses: actions/cache@v6` (action.yml, Cache vizb binary step)
-- `uses: pnpm/action-setup@v6` (.github/actions/setup-embed-ui/action.yml)
-- `uses: actions/setup-node@v6` (.github/actions/setup-embed-ui/action.yml)
+Failing reference: `uses: actions/cache@v6`
 
-These should be pinned to full SHA digests, e.g. `actions/cache@<40-char-sha> # v6`.
+It should be replaced with a full SHA pin, e.g.: `uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3`
 
 Locations:
 
-- `action.yml:118`
-- `.github/actions/setup-embed-ui/action.yml:6`
-- `.github/actions/setup-embed-ui/action.yml:10`
+- `action.yml:147`
 
 ### static-inline-injection (severity: high)
 
@@ -532,24 +539,13 @@ Locations:
 
 **Notes:**
 
-Fixed all security findings in hardened/action/action.yml and hardened/action/.github/actions/setup-embed-ui/action.yml:
+Fixed all security findings in hardened/action/action.yml:
 
-1. **script-injection / static-inline-injection**: Moved all ${{ inputs.* }}, ${{ github.* }}, ${{ runner.* }}, and ${{ steps.*.outputs.* }} expressions from run: blocks into env: blocks across all 6 affected steps (Resolve vizb version, Install vizb, Resolve input, Convert to JSON, Merge, Generate HTML). Shell scripts now reference only $ENV_VAR style variables.
+1. **unpinned-uses**: Pinned `actions/cache@v6` to full SHA `actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6`.
 
-2. **github-env-injection**: Added sanitization (printf '%s' "$VAR" | tr -d '\n\r') before writing user-controlled values (FILE, CMD, OUT_JSON) to $GITHUB_OUTPUT in the Resolve input step.
+2. **script-injection / static-inline-injection**: Moved all `${{ ... }}` expressions from `run:` blocks to `env:` blocks across all five composite steps. Most critically, the `${{ steps.resolve.outputs.cmd }}` that was being executed directly as a shell command is now written to a temp script file and executed with `bash` to prevent arbitrary command injection.
 
-3. **unpinned-uses**: Pinned all three mutable tag references to full 40-character commit SHAs:
-   - actions/cache@v6 → @55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-   - pnpm/action-setup@v6 → @0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-   - actions/setup-node@v6 → @249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+3. **github-env-injection**: Added `tr -d '\n\r'` sanitization for all values derived from untrusted inputs before writing to `$GITHUB_OUTPUT`: `$REF`/`$TAG` (from `github.action_ref`) in the version step, `$FILE`/`$CMD` (from `inputs.file`/`inputs.cmd`) and `$OUT_JSON` (from `inputs.output-json`) in the resolve step.
 
-4. **merge-files list handling**: The inputs.merge-files space-separated list in the Merge step is now properly tokenized using the xargs/read-loop pattern to handle quoted filenames correctly, replacing the unsafe unquoted glob-expansion.
-
-### Iteration 2
-
-**Fixes applied:** github-env-injection
-
-**Notes:**
-
-Fixed the github-env-injection finding in the 'Resolve vizb version' step of action.yml. In the else branch where REF (derived from GITHUB_ACTION_REF / github.action_ref) was written directly to $GITHUB_OUTPUT, added sanitization: `safe_ref=$(printf '%s' "$REF" | tr -d '\n\r')` and changed the echo to use `$safe_ref` instead of `$REF`. This prevents a malicious action_ref containing newlines from injecting arbitrary key=value pairs into GITHUB_OUTPUT.
+4. **merge-files**: The `inputs.merge-files` space-separated list is now properly tokenized with xargs in the Merge step to preserve argument boundaries.
 
