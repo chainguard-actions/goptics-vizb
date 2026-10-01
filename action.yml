@@ -133,17 +133,15 @@ runs:
       shell: bash
       env:
         INPUT_VIZB_BINARY: ${{ inputs.vizb-binary }}
-        GITHUB_ACTION_REF: ${{ github.action_ref }}
+        ACTION_REF: ${{ github.action_ref }}
       run: |
         if [ -n "$INPUT_VIZB_BINARY" ]; then
-          safe_tag=$(printf '%s' "local" | tr -d '\n\r')
-          echo "tag=$safe_tag" >> "$GITHUB_OUTPUT"
-          safe_is_major=$(printf '%s' "false" | tr -d '\n\r')
-          echo "is-major=$safe_is_major" >> "$GITHUB_OUTPUT"
+          echo "tag=local" >> "$GITHUB_OUTPUT"
+          echo "is-major=false" >> "$GITHUB_OUTPUT"
           exit 0
         fi
 
-        REF="$GITHUB_ACTION_REF"
+        REF="$ACTION_REF"
         if [ -z "$REF" ]; then
           REF="v0"
         fi
@@ -173,8 +171,8 @@ runs:
       shell: bash
       env:
         INPUT_VIZB_BINARY: ${{ inputs.vizb-binary }}
-        RUNNER_OS: ${{ runner.os }}
-        RUNNER_ARCH: ${{ runner.arch }}
+        RUNNER_OS_INPUT: ${{ runner.os }}
+        RUNNER_ARCH_INPUT: ${{ runner.arch }}
         VERSION_TAG: ${{ steps.version.outputs.tag }}
       run: |
         mkdir -p ~/.local/bin
@@ -187,9 +185,9 @@ runs:
           exit 0
         fi
 
-        OS=$(echo "$RUNNER_OS" | tr '[:upper:]' '[:lower:]')
+        OS=$(echo "$RUNNER_OS_INPUT" | tr '[:upper:]' '[:lower:]')
         [ "$OS" = "macos" ] && OS="darwin"
-        ARCH=$(echo "$RUNNER_ARCH" | tr '[:upper:]' '[:lower:]')
+        ARCH=$(echo "$RUNNER_ARCH_INPUT" | tr '[:upper:]' '[:lower:]')
         [ "$ARCH" = "x64" ] && ARCH="amd64"
 
         TAG="$VERSION_TAG"
@@ -261,21 +259,20 @@ runs:
           exit 1
         fi
 
+        safe_file=$(printf '%s' "$FILE" | tr -d '\n\r')
+        safe_cmd=$(printf '%s' "$CMD" | tr -d '\n\r')
         {
           echo "file<<__VIZB_EOF__"
-          printf '%s' "$FILE" | tr -d '\n\r'
-          echo ""
+          echo "$safe_file"
           echo "__VIZB_EOF__"
           echo "cmd<<__VIZB_EOF__"
-          printf '%s' "$CMD" | tr -d '\n\r'
-          echo ""
+          echo "$safe_cmd"
           echo "__VIZB_EOF__"
         } >> "$GITHUB_OUTPUT"
 
-        OUT_JSON="$INPUT_OUTPUT_JSON"
-        if [ -n "$OUT_JSON" ]; then
-          safe_out=$(printf '%s' "$OUT_JSON" | tr -d '\n\r')
-          echo "json_file=$safe_out" >> "$GITHUB_OUTPUT"
+        if [ -n "$INPUT_OUTPUT_JSON" ]; then
+          safe_out_json=$(printf '%s' "$INPUT_OUTPUT_JSON" | tr -d '\n\r')
+          echo "json_file=$safe_out_json" >> "$GITHUB_OUTPUT"
         else
           echo "json_file=bench.json" >> "$GITHUB_OUTPUT"
         fi
@@ -333,7 +330,7 @@ runs:
           INPUT="$RESOLVE_FILE"
         else
           INPUT="${RUNNER_TEMP}/vizb-data-input-$$.txt"
-          eval "$RESOLVE_CMD" > "$INPUT"
+          sh -c "$RESOLVE_CMD" > "$INPUT"
         fi
 
         vizb "$INPUT" -o "$RESOLVE_JSON_FILE" "${VIZB_ARGS[@]}"
