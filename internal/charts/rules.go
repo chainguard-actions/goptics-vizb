@@ -1,0 +1,308 @@
+package charts
+
+import (
+	"encoding/json"
+	"fmt"
+	"slices"
+	"strings"
+
+	"github.com/goptics/vizb/internal/flags"
+)
+
+// AxisInfo is the lightweight axis metadata rules need. Avoids importing
+// shared (which would create a cycle: shared imports config/charts).
+type AxisInfo struct {
+	Key  string // "x", "y", "z", "name"
+	Type string // "value" for continuous, "" for categorical
+}
+
+// RuleContext carries the runtime context for evaluating flag applicability
+// rules. Axes and ChartType are set once per Config; Value is set per flag.
+type RuleContext struct {
+	ChartType string     // e.g. "bar", "line"
+	Axes      []AxisInfo // data-derived axes (post-parse, includes AutoGroup cases)
+	Value     any        // this flag's current value from the marshalled Config
+	Config    map[string]any
+}
+
+func axisKeys(axes []AxisInfo) []string {
+	out := make([]string, 0, len(axes))
+	for _, a := range axes {
+		out = append(out, a.Key)
+	}
+	return out
+}
+
+// RequiresAxes returns a rule that Skips the flag unless all named axes are
+// present in the rule context. Panics with a clear message if keys is empty
+// (programmer error).
+func RequiresAxes(keys ...string) flags.RuleFn {
+	if len(keys) == 0 {
+		panic("RequiresAxes: at least one axis key is required")
+	}
+	return func(ctx any) (flags.Outcome, string) {
+		rc, ok := ctx.(RuleContext)
+		if !ok {
+			return flags.Fatal, "internal: expected charts.RuleContext"
+		}
+		for _, k := range keys {
+			if !slices.ContainsFunc(rc.Axes, func(a AxisInfo) bool { return a.Key == k }) {
+				return flags.Skip, fmt.Sprintf("requires axis %q (present: %v)", k, axisKeys(rc.Axes))
+			}
+		}
+		return flags.Keep, ""
+	}
+}
+
+// ExcludesAxes returns a rule that Skips the flag when any named axis is present
+// in the rule context.
+func ExcludesAxes(keys ...string) flags.RuleFn {
+	if len(keys) == 0 {
+		panic("ExcludesAxes: at least one axis key is required")
+	}
+	return func(ctx any) (flags.Outcome, string) {
+		rc, ok := ctx.(RuleContext)
+		if !ok {
+			return flags.Fatal, "internal: expected charts.RuleContext"
+		}
+		for _, k := range keys {
+			if slices.ContainsFunc(rc.Axes, func(a AxisInfo) bool { return a.Key == k }) {
+				return flags.Skip, fmt.Sprintf("excludes axis %q (present: %v)", k, axisKeys(rc.Axes))
+			}
+		}
+		return flags.Keep, ""
+	}
+}
+
+// stackedValueAxis is the axis stacking accumulates on: X for horizontal bars,
+// otherwise Y.
+func stackedValueAxis(rc RuleContext) string {
+	if h, ok := rc.Config["horizontal"].(bool); ok && h {
+		return "x"
+	}
+	return "y"
+}
+
+// scaleLogsStackedAxis reports whether scale logs the stacked value axis.
+// String "log" and a log object with omitted axes are today's default value
+// axis. An object that logs only a non-stacked axis does not block stack.
+func scaleLogsStackedAxis(scale any, valueAxis string) bool {
+	switch s := scale.(type) {
+	case string:
+		return strings.EqualFold(s, "log")
+	case map[string]any:
+		typ, _ := s["type"].(string)
+		if !strings.EqualFold(typ, "log") {
+			return false
+		}
+		axes := scaleAxes(s["axes"])
+		if len(axes) == 0 {
+			return true
+		}
+		for _, a := range axes {
+			if strings.EqualFold(a, valueAxis) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+func scaleAxes(raw any) []string {
+	switch v := raw.(type) {
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if a, ok := item.(string); ok {
+				out = append(out, a)
+			}
+		}
+		return out
+	case []string:
+		return v
+	default:
+		return nil
+	}
+}
+
+// StackRequiresLinearScale skips --stack when the same chart config uses a log
+// scale. ECharts stacked bar/line series are not valid on log axes.
+func StackRequiresLinearScale() flags.RuleFn {
+	return func(ctx any) (flags.Outcome, string) {
+		rc, ok := ctx.(RuleContext)
+		if !ok {
+			return flags.Fatal, "internal: expected charts.RuleContext"
+		}
+		enabled, ok := rc.Value.(bool)
+		if ok && !enabled {
+			return flags.Keep, ""
+		}
+		if scaleLogsStackedAxis(rc.Config["scale"], stackedValueAxis(rc)) {
+			return flags.Skip, "stacked bar/line charts require linear scale; ignoring"
+		}
+		return flags.Keep, ""
+	}
+}
+
+// Requires3DMode returns a rule that Skips the flag when no z-axis is present.
+// Both explicit z-axis data and auto-enabled value-mode xyz add a z axis to
+// the runtime axes, so a single z-axis check covers both cases.
+func Requires3DMode() flags.RuleFn {
+	return func(ctx any) (flags.Outcome, string) {
+		rc, ok := ctx.(RuleContext)
+		if !ok {
+			return flags.Fatal, "internal: expected charts.RuleContext"
+		}
+		for _, a := range rc.Axes {
+			if a.Key == "z" {
+				return flags.Keep, ""
+			}
+		}
+		return flags.Skip, "requires z-axis in data; ignoring"
+	}
+}
+
+// Excludes3DMode returns a rule that Skips the flag when the chart renders in
+// 3D. 3D has two detection paths: a z axis in the runtime axes (explicit
+// z-axis data or auto-enabled value-mode xyz) or a truthy threeD config entry
+// (--3d forcing 3D on x+y data, which never adds a z axis).
+func Excludes3DMode() flags.RuleFn {
+	return func(ctx any) (flags.Outcome, string) {
+		rc, ok := ctx.(RuleContext)
+		if !ok {
+			return flags.Fatal, "internal: expected charts.RuleContext"
+		}
+		for _, a := range rc.Axes {
+			if a.Key == "z" {
+				return flags.Skip, "background is 2D only; ignoring on 3D chart"
+			}
+		}
+		if enabled, ok := rc.Config["threeD"].(bool); ok && enabled {
+			return flags.Skip, "background is 2D only; ignoring on 3D chart"
+		}
+		return flags.Keep, ""
+	}
+}
+
+// OnlyScatter2D returns a rule that Skips --visualmap when scatter is in xyz
+// value-mode (where autoEnableValueMode3D forces 3D rendering). Checks that
+// x, y, and z axes are all present with type "value".
+func OnlyScatter2D() flags.RuleFn {
+	return func(ctx any) (flags.Outcome, string) {
+		rc, ok := ctx.(RuleContext)
+		if !ok {
+			return flags.Fatal, "internal: expected charts.RuleContext"
+		}
+		hasX, hasY, hasZ := false, false, false
+		allValue := true
+		for _, a := range rc.Axes {
+			switch a.Key {
+			case "x":
+				hasX = true
+				if a.Type != "value" {
+					allValue = false
+				}
+			case "y":
+				hasY = true
+				if a.Type != "value" {
+					allValue = false
+				}
+			case "z":
+				hasZ = true
+				if a.Type != "value" {
+					allValue = false
+				}
+			}
+		}
+		if hasX && hasY && hasZ && allValue {
+			return flags.Skip, "visualmap skipped: xyz value-mode forces 3D rendering"
+		}
+		return flags.Keep, ""
+	}
+}
+
+// ApplyRules is the central pipeline pass. It evaluates every chart-flag
+// descriptor's Rule list against each materialised Config, post-parse, with
+// full data-derived axes.
+//
+// For each Config:
+//  1. Marshal it to map[string]any (JSON round-trip, same pattern Materialise uses)
+//  2. Walk the chart's flag descriptors via FlagsFor(chartType)
+//  3. For each flag where len(Rule) > 0 and JSONKey is present in the map:
+//     a. Build RuleContext{ChartType, Axes, Value: map[JSONKey]}
+//     b. Evaluate every RuleFn; worst outcome per flag wins (Fatal > Skip > WarnKeep > Keep)
+//     c. On Fatal → return immediately with the error (caller exits non-zero)
+//     d. On Skip → delete JSONKey from the map, append warning message
+//     e. On WarnKeep → append warning (keep value in map)
+//  4. Re-decode the filtered map back to a typed ChartConfig via Decode(chartType, raw)
+//  5. Replace the entry in the configs slice with the new filtered Config
+//  6. Return accumulated warnings + nil error (or nil + fatal error)
+func ApplyRules(ctx RuleContext, configs []ChartConfig) (warnings []string, fatal error) {
+	for i, cfg := range configs {
+		chartType := cfg.ChartType()
+		ff := FlagsFor(chartType)
+		if ff == nil {
+			continue
+		}
+
+		raw, err := json.Marshal(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("apply rules marshal %s: %w", chartType, err)
+		}
+		m := make(map[string]any)
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return nil, fmt.Errorf("apply rules decode %s: %w", chartType, err)
+		}
+
+		for _, f := range ff {
+			if len(f.Rule) == 0 {
+				continue
+			}
+			val, present := m[f.JSONKey]
+			if !present {
+				continue
+			}
+
+			perFlagCtx := RuleContext{
+				ChartType: chartType,
+				Axes:      ctx.Axes,
+				Value:     val,
+				Config:    m,
+			}
+
+			worst := flags.Keep
+			worstMsg := ""
+			for _, rule := range f.Rule {
+				outcome, msg := rule(perFlagCtx)
+				if outcome > worst {
+					worst = outcome
+					worstMsg = msg
+				}
+			}
+
+			switch worst {
+			case flags.Fatal:
+				return nil, fmt.Errorf("flag %q: %s", f.Name, worstMsg)
+			case flags.Skip:
+				delete(m, f.JSONKey)
+				warnings = append(warnings, fmt.Sprintf("flag %q skipped: %s", f.Name, worstMsg))
+			case flags.WarnKeep:
+				warnings = append(warnings, fmt.Sprintf("flag %q: %s", f.Name, worstMsg))
+			}
+		}
+
+		filtered, err := json.Marshal(m)
+		if err != nil {
+			return nil, fmt.Errorf("apply rules marshal filtered %s: %w", chartType, err)
+		}
+		decoded, err := Decode(chartType, filtered)
+		if err != nil {
+			return nil, fmt.Errorf("apply rules decode filtered %s: %w", chartType, err)
+		}
+		configs[i] = decoded
+	}
+
+	return warnings, nil
+}

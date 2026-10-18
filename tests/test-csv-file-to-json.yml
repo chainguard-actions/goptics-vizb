@@ -1,0 +1,72 @@
+name: Test CSV file to JSON output
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create fake vizb binary
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          cat > /tmp/fake-vizb.sh << 'EOF'
+          #!/bin/sh
+          # Fake vizb binary that simulates vizb behavior
+          # Writes a minimal JSON output file when given an input file
+          OUTPUT_FILE=""
+          i=1
+          while [ $i -le $# ]; do
+            eval "arg=\${$i}"
+            if [ "$arg" = "-o" ]; then
+              j=$((i+1))
+              eval "OUTPUT_FILE=\${$j}"
+            fi
+            i=$((i+1))
+          done
+          if [ -n "$OUTPUT_FILE" ]; then
+            echo '{"datasets":[{"name":"Comparisons","data":[]}]}' > "$OUTPUT_FILE"
+          fi
+          exit 0
+          EOF
+          chmod +x /tmp/fake-vizb.sh
+
+      - name: Create CSV fixture file
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/tests/fixtures"
+          cat > /tmp/test-data.csv << 'EOF'
+          name,value
+          alpha,100
+          beta,200
+          gamma,150
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          file: /tmp/test-data.csv
+          output-json: /tmp/output.json
+          name: "Test Dataset"
+          vizb-binary: /tmp/fake-vizb.sh
+
+      - name: Assert JSON output file was created
+        run: |
+          echo "Checking for JSON output file at /tmp/output.json"
+          if [ ! -f "/tmp/output.json" ]; then
+            echo "FAIL: JSON output file was not created"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+          cat /tmp/output.json
+
+      - name: Assert output-file-json output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual output-file-json: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/output.json" ]; then
+            echo "FAIL: expected output-file-json to be '/tmp/output.json', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS: output-file-json is correct"

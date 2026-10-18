@@ -1,0 +1,61 @@
+name: Test data-url to HTML output
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create fake vizb binary
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          cat > /tmp/fake-vizb.sh << 'EOF'
+          #!/bin/sh
+          # Fake vizb binary: handles 'ui' subcommand with -U (data-url) and -o (output)
+          OUTPUT_FILE=""
+          i=1
+          while [ $i -le $# ]; do
+            eval "arg=\${$i}"
+            if [ "$arg" = "-o" ]; then
+              j=$((i+1))
+              eval "OUTPUT_FILE=\${$j}"
+            fi
+            i=$((i+1))
+          done
+          if [ -n "$OUTPUT_FILE" ]; then
+            echo '<html><body><h1>Vizb Remote Chart</h1></body></html>' > "$OUTPUT_FILE"
+          fi
+          exit 0
+          EOF
+          chmod +x /tmp/fake-vizb.sh
+
+      - id: action
+        uses: .
+        with:
+          data-url: "https://example.com/data.json"
+          output-html: /tmp/remote-output.html
+          name: "Remote Dataset"
+          vizb-binary: /tmp/fake-vizb.sh
+
+      - name: Assert HTML output file was created
+        run: |
+          echo "Checking for HTML output file at /tmp/remote-output.html"
+          if [ ! -f "/tmp/remote-output.html" ]; then
+            echo "FAIL: HTML output file was not created"
+            exit 1
+          fi
+          echo "PASS: HTML output file exists"
+          cat /tmp/remote-output.html
+
+      - name: Assert output-file-html output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "actual output-file-html: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/remote-output.html" ]; then
+            echo "FAIL: expected output-file-html to be '/tmp/remote-output.html', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS: output-file-html is correct"
