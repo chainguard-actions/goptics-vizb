@@ -25,6 +25,7 @@ Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at
 | v0.20.0 | [`v0.20.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.20.0) | [`8c09633`](https://github.com/goptics/vizb/commit/8c09633e4cf50748fb9502a64f60e06e8cf145e8) |
 | v0.21.0 | [`v0.21.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.21.0) | [`4b7b3c4`](https://github.com/goptics/vizb/commit/4b7b3c4dd4983b64b6c9eb5005c71f64b42fbb22) |
 | v0.22.0 | [`v0.22.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.22.0) | [`34629aa`](https://github.com/goptics/vizb/commit/34629aa57a96711e9475c634354539dd9835196a) |
+| v0.23.0 | [`v0.23.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.23.0) | [`e459503`](https://github.com/goptics/vizb/commit/e459503668f8608e70d039b676b1313b030c7b05) |
 
 ## Privacy
 
