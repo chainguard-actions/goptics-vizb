@@ -1,0 +1,66 @@
+name: Test chart options
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create CSV fixture
+        run: |
+          cat > /tmp/chart-data.csv << 'EOF'
+          name,throughput,memory
+          ImplA,9500,256
+          ImplB,7200,128
+          ImplC,11000,512
+          ImplD,6000,64
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          file: /tmp/chart-data.csv
+          parser: csv
+          name: "Chart Options Test"
+          title: "Implementation Comparison"
+          description: "Testing chart customization options"
+          charts: "bar,line"
+          chart: "bar:sort=asc"
+          round: "true"
+          output-html: /tmp/chart-output.html
+          output-json: /tmp/chart-output.json
+
+      - name: Assert HTML output file exists
+        run: |
+          if [ ! -f /tmp/chart-output.html ]; then
+            echo "FAIL: HTML output file not found"
+            exit 1
+          fi
+          echo "PASS: HTML output file exists"
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f /tmp/chart-output.json ]; then
+            echo "FAIL: JSON output file not found"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert HTML is non-trivial
+        run: |
+          SIZE=$(wc -c < /tmp/chart-output.html)
+          echo "HTML file size: $SIZE bytes"
+          if [ "$SIZE" -lt 100 ]; then
+            echo "FAIL: HTML output is too small"
+            exit 1
+          fi
+          echo "PASS: HTML output is non-trivial"
+
+      - name: Assert JSON is valid
+        run: |
+          if ! python3 -c "import json,sys; json.load(open('/tmp/chart-output.json'))" 2>/dev/null; then
+            echo "FAIL: JSON output is not valid JSON"
+            exit 1
+          fi
+          echo "PASS: JSON output is valid"

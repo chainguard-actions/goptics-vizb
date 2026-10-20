@@ -1,0 +1,51 @@
+name: Test deprecated bench-file input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create CSV fixture for deprecated input
+        run: |
+          cat > /tmp/deprecated-bench.csv << 'EOF'
+          name,ops,mem_kb
+          OldAPI,5000,32
+          NewAPI,8000,24
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          bench-file: /tmp/deprecated-bench.csv
+          parser: csv
+          name: "Deprecated Input Test"
+          output-html: /tmp/deprecated-output.html
+          output-json: /tmp/deprecated-output.json
+
+      - name: Assert HTML output file exists (deprecated bench-file honored)
+        run: |
+          if [ ! -f /tmp/deprecated-output.html ]; then
+            echo "FAIL: HTML output file not found — bench-file input may not be honored"
+            exit 1
+          fi
+          echo "PASS: HTML output file exists (bench-file input honored)"
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f /tmp/deprecated-output.json ]; then
+            echo "FAIL: JSON output file not found"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert HTML is non-trivial
+        run: |
+          SIZE=$(wc -c < /tmp/deprecated-output.html)
+          echo "HTML file size: $SIZE bytes"
+          if [ "$SIZE" -lt 100 ]; then
+            echo "FAIL: HTML output is too small"
+            exit 1
+          fi
+          echo "PASS"

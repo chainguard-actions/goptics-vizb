@@ -1,0 +1,50 @@
+name: Test cmd input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          cmd: "printf 'name,score,time_ms\nFuncA,95,12\nFuncB,87,18\nFuncC,99,8\n'"
+          parser: csv
+          name: "Command Output Test"
+          description: "Testing cmd input with CSV output"
+          output-html: /tmp/cmd-output.html
+          output-json: /tmp/cmd-output.json
+
+      - name: Assert HTML output file exists
+        run: |
+          if [ ! -f /tmp/cmd-output.html ]; then
+            echo "FAIL: HTML output file not found"
+            exit 1
+          fi
+          echo "PASS: HTML output file exists"
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f /tmp/cmd-output.json ]; then
+            echo "FAIL: JSON output file not found"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert HTML contains chart content
+        run: |
+          if ! grep -qi "html" /tmp/cmd-output.html; then
+            echo "FAIL: HTML output does not appear to be valid HTML"
+            exit 1
+          fi
+          echo "PASS: HTML output contains expected content"
+
+      - name: Assert JSON is valid
+        run: |
+          if ! python3 -c "import json,sys; json.load(open('/tmp/cmd-output.json'))" 2>/dev/null; then
+            echo "FAIL: JSON output is not valid JSON"
+            exit 1
+          fi
+          echo "PASS: JSON output is valid JSON"

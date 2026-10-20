@@ -1,0 +1,43 @@
+name: Test cmd with retries
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          cmd: "printf 'name,requests,errors\nEndpointA,10000,5\nEndpointB,8000,2\nEndpointC,12000,1\n'"
+          cmd-retries: "3"
+          parser: csv
+          name: "Retry Test"
+          filter: "Endpoint"
+          output-html: /tmp/retry-output.html
+          output-json: /tmp/retry-output.json
+
+      - name: Assert HTML output file exists
+        run: |
+          if [ ! -f /tmp/retry-output.html ]; then
+            echo "FAIL: HTML output file not found"
+            exit 1
+          fi
+          echo "PASS: HTML output file exists"
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f /tmp/retry-output.json ]; then
+            echo "FAIL: JSON output file not found"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert JSON is valid
+        run: |
+          if ! python3 -c "import json,sys; json.load(open('/tmp/retry-output.json'))" 2>/dev/null; then
+            echo "FAIL: JSON output is not valid JSON"
+            exit 1
+          fi
+          echo "PASS: JSON output is valid"

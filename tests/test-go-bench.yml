@@ -1,0 +1,71 @@
+name: Test Go benchmark output
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create Go benchmark fixture
+        run: |
+          cat > /tmp/go-bench.txt << 'EOF'
+          goos: linux
+          goarch: amd64
+          pkg: example/pkg
+          BenchmarkSort/Small-8         	 1000000	      1234 ns/op	     128 B/op	       2 allocs/op
+          BenchmarkSort/Medium-8        	  100000	     12345 ns/op	    1024 B/op	      10 allocs/op
+          BenchmarkSort/Large-8         	   10000	    123456 ns/op	    8192 B/op	      50 allocs/op
+          BenchmarkSearch/Linear-8      	 5000000	       234 ns/op	       0 B/op	       0 allocs/op
+          BenchmarkSearch/Binary-8      	10000000	       123 ns/op	       0 B/op	       0 allocs/op
+          PASS
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          file: /tmp/go-bench.txt
+          parser: go
+          name: "Go Benchmarks"
+          time-unit: ns
+          mem-unit: B
+          output-html: /tmp/go-output.html
+          output-json: /tmp/go-output.json
+
+      - name: Assert HTML output file exists
+        run: |
+          if [ ! -f /tmp/go-output.html ]; then
+            echo "FAIL: HTML output file not found"
+            exit 1
+          fi
+          echo "PASS: HTML output file exists"
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f /tmp/go-output.json ]; then
+            echo "FAIL: JSON output file not found"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert HTML is valid and non-trivial
+        run: |
+          SIZE=$(wc -c < /tmp/go-output.html)
+          echo "HTML file size: $SIZE bytes"
+          if [ "$SIZE" -lt 100 ]; then
+            echo "FAIL: HTML output is too small"
+            exit 1
+          fi
+          if ! grep -qi "html" /tmp/go-output.html; then
+            echo "FAIL: HTML output does not appear to be valid HTML"
+            exit 1
+          fi
+          echo "PASS: HTML output is valid"
+
+      - name: Assert JSON output is valid
+        run: |
+          if ! python3 -c "import json,sys; json.load(open('/tmp/go-output.json'))" 2>/dev/null; then
+            echo "FAIL: JSON output is not valid JSON"
+            exit 1
+          fi
+          echo "PASS: JSON output is valid"

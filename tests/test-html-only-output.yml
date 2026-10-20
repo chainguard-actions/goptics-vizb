@@ -1,0 +1,63 @@
+name: Test HTML-only output
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create CSV fixture
+        run: |
+          cat > /tmp/simple.csv << 'EOF'
+          name,value
+          Alpha,100
+          Beta,200
+          Gamma,150
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          file: /tmp/simple.csv
+          parser: csv
+          name: "HTML Only Test"
+          output-html: /tmp/html-only.html
+
+      - name: Assert HTML output file exists
+        run: |
+          if [ ! -f /tmp/html-only.html ]; then
+            echo "FAIL: HTML output file not found"
+            exit 1
+          fi
+          echo "PASS: HTML output file exists"
+
+      - name: Assert JSON output file was NOT created
+        run: |
+          if [ -f /tmp/html-only.json ]; then
+            echo "FAIL: JSON output file should not have been created"
+            exit 1
+          fi
+          echo "PASS: JSON output file was not created (as expected)"
+
+      - name: Assert output-file-html output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/html-only.html" ]; then
+            echo "FAIL: expected '/tmp/html-only.html' but got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert output-file-json is empty when not set
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: '$ACTUAL'"
+          if [ -n "$ACTUAL" ]; then
+            echo "FAIL: expected empty output-file-json but got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS: output-file-json is empty as expected"

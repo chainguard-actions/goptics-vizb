@@ -1,0 +1,81 @@
+name: Test JSON file input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create JSON fixture
+        run: |
+          cat > /tmp/data.json << 'EOF'
+          [
+            {"name": "ServiceA", "rps": 5000, "latency": 2},
+            {"name": "ServiceB", "rps": 3500, "latency": 4},
+            {"name": "ServiceC", "rps": 7000, "latency": 1}
+          ]
+          EOF
+
+      - id: action
+        uses: .
+        with:
+          file: /tmp/data.json
+          parser: json
+          name: "Service Benchmarks"
+          description: "JSON input test"
+          tag: "v1.0"
+          output-html: /tmp/json-output.html
+          output-json: /tmp/json-output.json
+
+      - name: Assert HTML output file exists
+        run: |
+          if [ ! -f /tmp/json-output.html ]; then
+            echo "FAIL: HTML output file not found"
+            exit 1
+          fi
+          echo "PASS: HTML output file exists"
+
+      - name: Assert JSON output file exists
+        run: |
+          if [ ! -f /tmp/json-output.json ]; then
+            echo "FAIL: JSON output file not found"
+            exit 1
+          fi
+          echo "PASS: JSON output file exists"
+
+      - name: Assert JSON output is valid and non-empty
+        run: |
+          SIZE=$(wc -c < /tmp/json-output.json)
+          echo "JSON file size: $SIZE bytes"
+          if [ "$SIZE" -lt 10 ]; then
+            echo "FAIL: JSON output is too small"
+            exit 1
+          fi
+          if ! python3 -c "import json,sys; json.load(open('/tmp/json-output.json'))" 2>/dev/null; then
+            echo "FAIL: JSON output is not valid JSON"
+            exit 1
+          fi
+          echo "PASS: JSON output is valid and non-empty"
+
+      - name: Assert output-file-html output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/json-output.html" ]; then
+            echo "FAIL: expected '/tmp/json-output.html' but got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert output-file-json output
+        env:
+          ACTUAL: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "/tmp/json-output.json" ]; then
+            echo "FAIL: expected '/tmp/json-output.json' but got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
