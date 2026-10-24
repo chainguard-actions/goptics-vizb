@@ -1,0 +1,60 @@
+name: Test merging JSON files
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Download vizb release binary
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) ARCH=amd64 ;;
+            aarch64|arm64) ARCH=arm64 ;;
+            *) echo "unsupported arch"; exit 1 ;;
+          esac
+          mkdir -p "$RUNNER_TEMP/vizb-dl"
+          curl -sfL "https://github.com/goptics/vizb/releases/download/v0.23.1/vizb@0.23.1-linux-${ARCH}.tar.gz" -o "$RUNNER_TEMP/vizb.tar.gz"
+          tar xzf "$RUNNER_TEMP/vizb.tar.gz" -C "$RUNNER_TEMP/vizb-dl"
+          echo "VIZB_BIN=$RUNNER_TEMP/vizb-dl/vizb" >> "$GITHUB_ENV"
+      - name: Produce first dataset
+        uses: .
+        with:
+          vizb-binary: ${{ env.VIZB_BIN }}
+          file: tests/fixtures/go-bench.txt
+          name: RunOne
+          tag: one
+          output-json: merge-a.json
+      - name: Produce second dataset
+        uses: .
+        with:
+          vizb-binary: ${{ env.VIZB_BIN }}
+          file: tests/fixtures/go-bench.txt
+          name: RunTwo
+          tag: two
+          output-json: merge-b.json
+      - name: Assert inputs exist
+        run: |
+          [ -s merge-a.json ] && [ -s merge-b.json ] || { echo "FAIL: source JSONs missing"; exit 1; }
+          echo "PASS"
+      - id: action
+        uses: .
+        with:
+          vizb-binary: ${{ env.VIZB_BIN }}
+          merge-files: merge-a.json merge-b.json
+          output-json: merged.json
+          output-html: merged.html
+      - name: Assert merged output
+        env:
+          OUT_JSON: ${{ steps.action.outputs.output-file-json }}
+        run: |
+          echo "output-file-json: $OUT_JSON"
+          [ "$OUT_JSON" = "merged.json" ] || { echo "FAIL: output path"; exit 1; }
+          [ -s merged.json ] || { echo "FAIL: merged JSON missing"; exit 1; }
+          [ -s merged.html ] || { echo "FAIL: merged HTML missing"; exit 1; }
+          head -c 800 merged.json; echo
+          node -e 'JSON.parse(require("fs").readFileSync("merged.json","utf8"))' || { echo "FAIL: invalid JSON"; exit 1; }
+          grep -q "one" merged.json || { echo "FAIL: first tag missing"; exit 1; }
+          grep -q "two" merged.json || { echo "FAIL: second tag missing"; exit 1; }
+          echo "PASS"

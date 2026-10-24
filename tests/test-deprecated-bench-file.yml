@@ -1,0 +1,39 @@
+name: Test deprecated bench-file input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Download vizb release binary
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) ARCH=amd64 ;;
+            aarch64|arm64) ARCH=arm64 ;;
+            *) echo "unsupported arch"; exit 1 ;;
+          esac
+          mkdir -p "$RUNNER_TEMP/vizb-dl"
+          curl -sfL "https://github.com/goptics/vizb/releases/download/v0.23.1/vizb@0.23.1-linux-${ARCH}.tar.gz" -o "$RUNNER_TEMP/vizb.tar.gz"
+          tar xzf "$RUNNER_TEMP/vizb.tar.gz" -C "$RUNNER_TEMP/vizb-dl"
+          echo "VIZB_BIN=$RUNNER_TEMP/vizb-dl/vizb" >> "$GITHUB_ENV"
+      - id: action
+        uses: .
+        with:
+          vizb-binary: ${{ env.VIZB_BIN }}
+          bench-file: tests/fixtures/go-bench.txt
+          parser: go
+          time-unit: us
+          output-json: vizb-deprecated.json
+          output-html: vizb-deprecated.html
+          charts: bar,line
+      - name: Assert outputs
+        run: |
+          [ -s vizb-deprecated.json ] || { echo "FAIL: JSON missing"; exit 1; }
+          [ -s vizb-deprecated.html ] || { echo "FAIL: HTML missing"; exit 1; }
+          head -c 500 vizb-deprecated.json; echo
+          node -e 'JSON.parse(require("fs").readFileSync("vizb-deprecated.json","utf8"))' || { echo "FAIL: invalid JSON"; exit 1; }
+          grep -q "Search" vizb-deprecated.json || { echo "FAIL: benchmark data missing"; exit 1; }
+          grep -qi "<html" vizb-deprecated.html || { echo "FAIL: not HTML"; exit 1; }
+          echo "PASS"

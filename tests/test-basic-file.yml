@@ -1,0 +1,33 @@
+name: Test basic file input with default install
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: action
+        uses: .
+        with:
+          file: tests/fixtures/go-bench.txt
+          name: MyGoBench
+          output-json: vizb-basic.json
+          output-html: vizb-basic.html
+      - name: Assert outputs and files
+        env:
+          OUT_JSON: ${{ steps.action.outputs.output-file-json }}
+          OUT_HTML: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "output-file-json: $OUT_JSON"
+          echo "output-file-html: $OUT_HTML"
+          [ "$OUT_JSON" = "vizb-basic.json" ] || { echo "FAIL: json output path"; exit 1; }
+          [ "$OUT_HTML" = "vizb-basic.html" ] || { echo "FAIL: html output path"; exit 1; }
+          [ -s vizb-basic.json ] || { echo "FAIL: JSON file missing/empty"; exit 1; }
+          [ -s vizb-basic.html ] || { echo "FAIL: HTML file missing/empty"; exit 1; }
+          head -c 500 vizb-basic.json; echo
+          node -e 'JSON.parse(require("fs").readFileSync("vizb-basic.json","utf8"))' || { echo "FAIL: invalid JSON"; exit 1; }
+          grep -q "MyGoBench" vizb-basic.json || { echo "FAIL: name not in JSON"; exit 1; }
+          grep -q "Sort" vizb-basic.json || { echo "FAIL: benchmark name not in JSON"; exit 1; }
+          grep -qi "<html" vizb-basic.html || { echo "FAIL: HTML does not look like HTML"; exit 1; }
+          [ -x "$HOME/.local/bin/vizb" ] || { echo "FAIL: vizb not installed"; exit 1; }
+          echo "PASS"

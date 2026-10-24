@@ -1,0 +1,223 @@
+import { computed } from 'vue'
+import type { EChartsOption } from 'echarts'
+import { type BaseChartConfig, getBaseOptions } from './baseChartOptions'
+import { getNextColorFor, hasXAxis, hasYAxis, hasZAxis, formatChartNumber } from '@/lib/utils'
+import { affixesOf, applyAffixes, NO_WRAP, wrapFor, type Affixes, type Wrap } from '@/lib/affix'
+import { getChartStyling, getTooltipTheme, formatRadarItemTooltip } from './shared/chartConfig'
+import { sortByTotal } from './shared/common'
+import { chartFontSize } from './shared/chartFontSize'
+
+const makeIndicators = (names: string[], perSpokeMax: number[]) =>
+  names.map((name, i) => ({ name, max: Math.max(perSpokeMax[i]! * 1.1, 1) }))
+
+const makeTooltip = (
+  isDark: boolean,
+  indicatorNames: string[],
+  affixes?: Affixes,
+  metric: Wrap = NO_WRAP
+): EChartsOption['tooltip'] =>
+  ({
+    trigger: 'item',
+    ...getTooltipTheme(isDark),
+    formatter: (params: any) =>
+      formatRadarItemTooltip(params, indicatorNames, isDark, getNextColorFor, affixes, metric),
+  }) as EChartsOption['tooltip']
+
+const radarConfig = (
+  indicators: { name: string; max: number }[],
+  styling: ReturnType<typeof getChartStyling>
+) => ({
+  indicator: indicators,
+  axisName: { color: styling.textColor, fontSize: chartFontSize().label },
+  splitLine: { lineStyle: { color: styling.axisColor } },
+  splitArea: { areaStyle: { opacity: 0.05 } },
+})
+
+export function useRadarChartOptions(config: BaseChartConfig) {
+  const { chartData, sort, showLabels, isDark } = config
+
+  const options = computed<EChartsOption>(() => {
+    const cd = chartData.value
+    const styling = getChartStyling(isDark.value)
+    const baseOptions = getBaseOptions(config)
+    const affixes = affixesOf(config)
+    // Spokes are categories, not columns: a spoke-named entry wins, else the
+    // metric column's affix (as pie/heatmap resolve via the chart title).
+    const metricWrap = wrapFor(affixes, cd.title)
+    const spokeWrap = (name: string) => wrapFor(affixes, name, metricWrap)
+    // Label formatter is added only when a spoke matches the affix, so the
+    // no-affix option stays byte-identical to ECharts' default numeric label.
+    const makeLabel = (spokes: string[]) => {
+      const base = {
+        show: showLabels.value,
+        fontSize: chartFontSize().series,
+        color: styling.textColor,
+      }
+      const hasAffix = (name: string) => spokeWrap(name).prefix || spokeWrap(name).suffix
+      if (!spokes.some(hasAffix)) return base
+      return {
+        ...base,
+        formatter: (p: { value?: unknown; dimensionIndex?: number }) => {
+          const raw = p.value
+          if (typeof raw !== 'number' || Number.isNaN(raw)) return ''
+          const spoke = spokes[p.dimensionIndex ?? -1] ?? ''
+          return applyAffixes(formatChartNumber(raw), spokeWrap(spoke))
+        },
+      }
+    }
+
+    // X only: xAxis values as spokes, single polygon with totals
+    if (!hasYAxis(chartData)) {
+      const rows = cd.series.map((s) => ({ ...s, total: s.values[0] ?? 0 }))
+      if (sort.value.enabled) rows.sort(sortByTotal(sort.value.order))
+      const names = rows.map((s) => s.xAxis)
+      const values = rows.map((s) => Math.max(0, s.total))
+      return {
+        ...baseOptions,
+        tooltip: makeTooltip(isDark.value, names, affixes, metricWrap),
+        legend: { show: false },
+        radar: radarConfig(makeIndicators(names, values), styling),
+        series: [
+          {
+            type: 'radar' as const,
+            symbol: 'none',
+            label: makeLabel(names),
+            data: [{ value: values, name: cd.statType }],
+          },
+        ],
+      }
+    }
+
+    const yAxis = cd.yAxis
+
+    // Y only: yAxis values as spokes, single polygon with column totals
+    if (!hasXAxis(chartData)) {
+      const spokeTotals = yAxis.map((_, i) =>
+        cd.series.reduce((sum, s) => sum + (s.values[i] ?? 0), 0)
+      )
+      return {
+        ...baseOptions,
+        tooltip: makeTooltip(isDark.value, yAxis, affixes, metricWrap),
+        legend: { show: false },
+        radar: radarConfig(makeIndicators(yAxis, spokeTotals), styling),
+        series: [
+          {
+            type: 'radar' as const,
+            symbol: 'none',
+            label: makeLabel(yAxis),
+            data: [{ value: spokeTotals.map((v) => Math.max(0, v)), name: cd.statType }],
+          },
+        ],
+      }
+    }
+
+    // X + Y + Z: Z = series in legend, X = multiple data points per Z series, Y = spokes
+    if (hasZAxis(chartData)) {
+      const yIndex = new Map(yAxis.map((y, i) => [y, i]))
+      const grouped = new Map<string, Map<string, number[]>>()
+      for (const pt of cd.points ?? []) {
+        if (!grouped.has(pt.zAxis)) grouped.set(pt.zAxis, new Map())
+        const zMap = grouped.get(pt.zAxis)!
+        if (!zMap.has(pt.xAxis)) zMap.set(pt.xAxis, new Array(yAxis.length).fill(0))
+        const idx = yIndex.get(pt.yAxis)
+        if (idx !== undefined) zMap.get(pt.xAxis)![idx] = pt.value
+      }
+
+      const perSpokeMax = new Array<number>(yAxis.length).fill(0)
+      for (const xMap of grouped.values()) {
+        for (const vals of xMap.values()) {
+          vals.forEach((v, i) => {
+            if (v > perSpokeMax[i]!) perSpokeMax[i] = v
+          })
+        }
+      }
+
+      let zValues = cd.zAxis.filter((z) => z !== '')
+      if (sort.value.enabled) {
+        const zTotals = new Map(zValues.map((z) => [z, 0]))
+        for (const [z, xMap] of grouped) {
+          let total = 0
+          for (const vals of xMap.values()) total += vals.reduce((a, b) => a + b, 0)
+          zTotals.set(z, total)
+        }
+        zValues = [...zValues].sort((a, b) => {
+          const ta = zTotals.get(a)!
+          const tb = zTotals.get(b)!
+          return sort.value.order === 'asc' ? ta - tb : tb - ta
+        })
+      }
+
+      // Render largest Z series first so smaller ones stay on top and are hoverable.
+      const zTotalsForRender = new Map(zValues.map((z) => [z, 0]))
+      for (const [z, xMap] of grouped) {
+        let t = 0
+        for (const vals of xMap.values()) t += vals.reduce((a, b) => a + b, 0)
+        zTotalsForRender.set(z, t)
+      }
+      const renderZValues = [...zValues].sort((a, b) => {
+        const ta = zTotalsForRender.get(a)!
+        const tb = zTotalsForRender.get(b)!
+        return tb - ta
+      })
+
+      return {
+        ...baseOptions,
+        tooltip: makeTooltip(isDark.value, yAxis, affixes, metricWrap),
+        legend: { data: zValues, bottom: 5, textStyle: { color: styling.textColor } },
+        radar: radarConfig(makeIndicators(yAxis, perSpokeMax), styling),
+        series: renderZValues.map((z) => ({
+          name: z,
+          type: 'radar' as const,
+          symbol: 'circle',
+          symbolSize: 10,
+          label: makeLabel(yAxis),
+          itemStyle: { color: getNextColorFor(z) },
+          lineStyle: { width: 1.5, opacity: 0.7 },
+          areaStyle: { opacity: 0.1 },
+          data: [...(grouped.get(z) ?? new Map<string, number[]>()).entries()].map(([x, vals]) => ({
+            value: vals.map((v) => Math.max(0, v)),
+            name: x,
+          })),
+        })),
+      }
+    }
+
+    // X + Y: one polygon per X value, Y = spokes, legend = X values
+    const rows = cd.series.map((s) => ({
+      ...s,
+      total: s.values.reduce<number>((sum, v) => sum + (v ?? 0), 0),
+    }))
+    if (sort.value.enabled) rows.sort(sortByTotal(sort.value.order))
+
+    const perSpokeMax = new Array<number>(yAxis.length).fill(0)
+    for (const s of rows) {
+      s.values.forEach((v, i) => {
+        if (v !== null && v > perSpokeMax[i]!) perSpokeMax[i] = v
+      })
+    }
+
+    return {
+      ...baseOptions,
+      tooltip: makeTooltip(isDark.value, yAxis, affixes, metricWrap),
+      legend: {
+        data: rows.map((s) => s.xAxis),
+        bottom: 5,
+        textStyle: { color: styling.textColor },
+      },
+      radar: radarConfig(makeIndicators(yAxis, perSpokeMax), styling),
+      series: rows.map((s) => ({
+        name: s.xAxis,
+        type: 'radar' as const,
+        symbol: 'circle',
+        symbolSize: 10,
+        label: makeLabel(yAxis),
+        itemStyle: { color: getNextColorFor(s.xAxis) },
+        lineStyle: { width: 1.5, opacity: 0.7 },
+        areaStyle: { opacity: 0.1 },
+        data: [{ value: s.values.map((v) => Math.max(0, v ?? 0)), name: s.xAxis }],
+      })),
+    }
+  })
+
+  return { options }
+}

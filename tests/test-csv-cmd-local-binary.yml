@@ -1,0 +1,45 @@
+name: Test CSV via cmd with local vizb-binary
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Download vizb release binary
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) ARCH=amd64 ;;
+            aarch64|arm64) ARCH=arm64 ;;
+            *) echo "unsupported arch"; exit 1 ;;
+          esac
+          mkdir -p "$RUNNER_TEMP/vizb-dl"
+          curl -sfL "https://github.com/goptics/vizb/releases/download/v0.23.1/vizb@0.23.1-linux-${ARCH}.tar.gz" -o "$RUNNER_TEMP/vizb.tar.gz"
+          tar xzf "$RUNNER_TEMP/vizb.tar.gz" -C "$RUNNER_TEMP/vizb-dl"
+          ls -la "$RUNNER_TEMP/vizb-dl"
+          echo "VIZB_BIN=$RUNNER_TEMP/vizb-dl/vizb" >> "$GITHUB_ENV"
+      - id: action
+        uses: .
+        with:
+          vizb-binary: ${{ env.VIZB_BIN }}
+          cmd: cat tests/fixtures/data.csv
+          parser: csv
+          name: FruitData
+          output-json: vizb-csv.json
+      - name: Assert JSON generated from CSV
+        env:
+          OUT_JSON: ${{ steps.action.outputs.output-file-json }}
+          OUT_HTML: ${{ steps.action.outputs.output-file-html }}
+        run: |
+          echo "output-file-json: $OUT_JSON"
+          echo "output-file-html: '$OUT_HTML'"
+          [ "$OUT_JSON" = "vizb-csv.json" ] || { echo "FAIL: json output path"; exit 1; }
+          [ -z "$OUT_HTML" ] || { echo "FAIL: html output should be empty"; exit 1; }
+          [ -s vizb-csv.json ] || { echo "FAIL: JSON missing"; exit 1; }
+          head -c 500 vizb-csv.json; echo
+          node -e 'JSON.parse(require("fs").readFileSync("vizb-csv.json","utf8"))' || { echo "FAIL: invalid JSON"; exit 1; }
+          grep -q "FruitData" vizb-csv.json || { echo "FAIL: name missing"; exit 1; }
+          grep -q "apple" vizb-csv.json || { echo "FAIL: CSV row missing"; exit 1; }
+          cmp -s "$VIZB_BIN" "$HOME/.local/bin/vizb" || { echo "FAIL: local binary not installed"; exit 1; }
+          echo "PASS"
