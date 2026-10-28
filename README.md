@@ -6,27 +6,27 @@ Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at
 
 ## Versions
 
-| Version | Tag | Upstream commit |
-|---------|-----|-----------------|
-| v0.10.1 | [`v0.10.1`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.10.1) | [`d8d7d67`](https://github.com/goptics/vizb/commit/d8d7d676b2a8b19e9831b0f8f6ce3fa95b5fcee6) |
-| v0.12.0 | [`v0.12.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.12.0) | [`b3a7870`](https://github.com/goptics/vizb/commit/b3a787012ef33616a93cb3062f40b7e065194352) |
-| v0.13.0 | [`v0.13.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.13.0) | [`8d9e0de`](https://github.com/goptics/vizb/commit/8d9e0ded9130f62afe0d6a83234f31c32e6de9a6) |
-| v0.14.0 | [`v0.14.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.14.0) | [`f351f8a`](https://github.com/goptics/vizb/commit/f351f8a4adc849122c561f1f3b494572bed625ef) |
-| v0.14.1 | [`v0.14.1`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.14.1) | [`e51d56b`](https://github.com/goptics/vizb/commit/e51d56b2b618e5f13c434a5267cbea90fc7dca9a) |
-| v0.15.0 | [`v0.15.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.15.0) | [`55c2bc7`](https://github.com/goptics/vizb/commit/55c2bc716a095c838c30b66ce97d651a4872d3e7) |
-| v0.16.0 | [`v0.16.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.16.0) | [`e4f0902`](https://github.com/goptics/vizb/commit/e4f09028b52f02c0eb3be815bdba718f783c7fa7) |
-| v0.16.1 | [`v0.16.1`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.16.1) | [`de3a37f`](https://github.com/goptics/vizb/commit/de3a37ff0821c013ee4013f481f708b52032bcb7) |
-| v0.17.0 | [`v0.17.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.17.0) | [`ae04a22`](https://github.com/goptics/vizb/commit/ae04a22c1afe3182a8b5de484d7cd8b92436c8d3) |
-| v0.17.1 | [`v0.17.1`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.17.1) | [`a023fb0`](https://github.com/goptics/vizb/commit/a023fb04f00f3d7083e223cbe8261ea7f9660caa) |
-| v0.18.0 | [`v0.18.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.18.0) | [`56a8c53`](https://github.com/goptics/vizb/commit/56a8c539b29b7214c5e9fa53e2275b7484ec40d5) |
-| v0.18.1 | [`v0.18.1`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.18.1) | [`86a3217`](https://github.com/goptics/vizb/commit/86a321782ad580be6bcbc9da8ddd2c2e24f0df65) |
-| v0.18.2 | [`v0.18.2`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.18.2) | [`6ebc4fb`](https://github.com/goptics/vizb/commit/6ebc4fb33c6c28f43d27652b7e9aa6ec93c3a240) |
-| v0.19.0 | [`v0.19.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.19.0) | [`d66148c`](https://github.com/goptics/vizb/commit/d66148c2454ca3e0895d3d338f3017fbcc6280ba) |
-| v0.20.0 | [`v0.20.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.20.0) | [`8c09633`](https://github.com/goptics/vizb/commit/8c09633e4cf50748fb9502a64f60e06e8cf145e8) |
-| v0.21.0 | [`v0.21.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.21.0) | [`4b7b3c4`](https://github.com/goptics/vizb/commit/4b7b3c4dd4983b64b6c9eb5005c71f64b42fbb22) |
-| v0.22.0 | [`v0.22.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.22.0) | [`34629aa`](https://github.com/goptics/vizb/commit/34629aa57a96711e9475c634354539dd9835196a) |
-| v0.23.0 | [`v0.23.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.23.0) | [`e459503`](https://github.com/goptics/vizb/commit/e459503668f8608e70d039b676b1313b030c7b05) |
-| v0.23.1 | [`v0.23.1`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.23.1) | [`cb404ce`](https://github.com/goptics/vizb/commit/cb404ce77034e3ebd90362788c317ce8c4d21fbf) |
+| Version | Tag | Upstream commit | Hardening report |
+|---------|-----|-----------------|------------------|
+| v0.10.1 | [`v0.10.1`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.10.1) | [`d8d7d67`](https://github.com/goptics/vizb/commit/d8d7d676b2a8b19e9831b0f8f6ce3fa95b5fcee6) | [`HARDENING.md`](https://github.com/chainguard-actions/goptics-vizb/blob/v0.10.1/HARDENING.md) |
+| v0.12.0 | [`v0.12.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.12.0) | [`b3a7870`](https://github.com/goptics/vizb/commit/b3a787012ef33616a93cb3062f40b7e065194352) | [`HARDENING.md`](https://github.com/chainguard-actions/goptics-vizb/blob/v0.12.0/HARDENING.md) |
+| v0.13.0 | [`v0.13.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.13.0) | [`8d9e0de`](https://github.com/goptics/vizb/commit/8d9e0ded9130f62afe0d6a83234f31c32e6de9a6) | [`HARDENING.md`](https://github.com/chainguard-actions/goptics-vizb/blob/v0.13.0/HARDENING.md) |
+| v0.14.0 | [`v0.14.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.14.0) | [`f351f8a`](https://github.com/goptics/vizb/commit/f351f8a4adc849122c561f1f3b494572bed625ef) | [`HARDENING.md`](https://github.com/chainguard-actions/goptics-vizb/blob/v0.14.0/HARDENING.md) |
+| v0.14.1 | [`v0.14.1`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.14.1) | [`e51d56b`](https://github.com/goptics/vizb/commit/e51d56b2b618e5f13c434a5267cbea90fc7dca9a) | [`HARDENING.md`](https://github.com/chainguard-actions/goptics-vizb/blob/v0.14.1/HARDENING.md) |
+| v0.15.0 | [`v0.15.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.15.0) | [`55c2bc7`](https://github.com/goptics/vizb/commit/55c2bc716a095c838c30b66ce97d651a4872d3e7) | [`HARDENING.md`](https://github.com/chainguard-actions/goptics-vizb/blob/v0.15.0/HARDENING.md) |
+| v0.16.0 | [`v0.16.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.16.0) | [`e4f0902`](https://github.com/goptics/vizb/commit/e4f09028b52f02c0eb3be815bdba718f783c7fa7) | [`HARDENING.md`](https://github.com/chainguard-actions/goptics-vizb/blob/v0.16.0/HARDENING.md) |
+| v0.16.1 | [`v0.16.1`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.16.1) | [`de3a37f`](https://github.com/goptics/vizb/commit/de3a37ff0821c013ee4013f481f708b52032bcb7) | [`HARDENING.md`](https://github.com/chainguard-actions/goptics-vizb/blob/v0.16.1/HARDENING.md) |
+| v0.17.0 | [`v0.17.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.17.0) | [`ae04a22`](https://github.com/goptics/vizb/commit/ae04a22c1afe3182a8b5de484d7cd8b92436c8d3) | [`HARDENING.md`](https://github.com/chainguard-actions/goptics-vizb/blob/v0.17.0/HARDENING.md) |
+| v0.17.1 | [`v0.17.1`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.17.1) | [`a023fb0`](https://github.com/goptics/vizb/commit/a023fb04f00f3d7083e223cbe8261ea7f9660caa) | [`HARDENING.md`](https://github.com/chainguard-actions/goptics-vizb/blob/v0.17.1/HARDENING.md) |
+| v0.18.0 | [`v0.18.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.18.0) | [`56a8c53`](https://github.com/goptics/vizb/commit/56a8c539b29b7214c5e9fa53e2275b7484ec40d5) | [`HARDENING.md`](https://github.com/chainguard-actions/goptics-vizb/blob/v0.18.0/HARDENING.md) |
+| v0.18.1 | [`v0.18.1`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.18.1) | [`86a3217`](https://github.com/goptics/vizb/commit/86a321782ad580be6bcbc9da8ddd2c2e24f0df65) | [`HARDENING.md`](https://github.com/chainguard-actions/goptics-vizb/blob/v0.18.1/HARDENING.md) |
+| v0.18.2 | [`v0.18.2`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.18.2) | [`6ebc4fb`](https://github.com/goptics/vizb/commit/6ebc4fb33c6c28f43d27652b7e9aa6ec93c3a240) | [`HARDENING.md`](https://github.com/chainguard-actions/goptics-vizb/blob/v0.18.2/HARDENING.md) |
+| v0.19.0 | [`v0.19.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.19.0) | [`d66148c`](https://github.com/goptics/vizb/commit/d66148c2454ca3e0895d3d338f3017fbcc6280ba) | [`HARDENING.md`](https://github.com/chainguard-actions/goptics-vizb/blob/v0.19.0/HARDENING.md) |
+| v0.20.0 | [`v0.20.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.20.0) | [`8c09633`](https://github.com/goptics/vizb/commit/8c09633e4cf50748fb9502a64f60e06e8cf145e8) | [`HARDENING.md`](https://github.com/chainguard-actions/goptics-vizb/blob/v0.20.0/HARDENING.md) |
+| v0.21.0 | [`v0.21.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.21.0) | [`4b7b3c4`](https://github.com/goptics/vizb/commit/4b7b3c4dd4983b64b6c9eb5005c71f64b42fbb22) | [`HARDENING.md`](https://github.com/chainguard-actions/goptics-vizb/blob/v0.21.0/HARDENING.md) |
+| v0.22.0 | [`v0.22.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.22.0) | [`34629aa`](https://github.com/goptics/vizb/commit/34629aa57a96711e9475c634354539dd9835196a) | [`HARDENING.md`](https://github.com/chainguard-actions/goptics-vizb/blob/v0.22.0/HARDENING.md) |
+| v0.23.0 | [`v0.23.0`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.23.0) | [`e459503`](https://github.com/goptics/vizb/commit/e459503668f8608e70d039b676b1313b030c7b05) | [`HARDENING.md`](https://github.com/chainguard-actions/goptics-vizb/blob/v0.23.0/HARDENING.md) |
+| v0.23.1 | [`v0.23.1`](https://github.com/chainguard-actions/goptics-vizb/tree/v0.23.1) | [`cb404ce`](https://github.com/goptics/vizb/commit/cb404ce77034e3ebd90362788c317ce8c4d21fbf) | [`HARDENING.md`](https://github.com/chainguard-actions/goptics-vizb/blob/v0.23.1/HARDENING.md) |
 
 ## Privacy
 
